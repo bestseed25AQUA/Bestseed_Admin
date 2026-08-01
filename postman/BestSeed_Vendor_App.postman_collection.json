@@ -1,0 +1,1340 @@
+{
+	"info": {
+		"name": "BestSeeds - Vendor (Hatchery) App",
+		"description": "API collection for the BestSeeds Vendor/Hatchery mobile application.\n\nAuthentication: best_seeds_id + password → Sanctum Bearer Token.\nMiddleware: auth:sanctum + CheckVendorActive\n\nBase URL: {{base_url}}/api/vendor\n\nAlso includes Driver APIs under /api/driver prefix.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://aqua.bestseed.in",
+			"type": "string"
+		},
+		{
+			"key": "vendor_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "driver_token",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{vendor_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Vendor Authentication",
+			"item": [
+				{
+					"name": "Vendor Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.token) {",
+									"        pm.collectionVariables.set('vendor_token', json.token);",
+									"    }",
+									"    if (json.require_password_reset) {",
+									"        pm.collectionVariables.set('vendor_id_for_reset', json.vendor_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"best_seeds_id\": \"BS001\",\n    \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "login"]
+						},
+						"description": "Login with BestSeeds ID and password. First login returns require_password_reset=true."
+					}
+				},
+				{
+					"name": "Set New Password (First Login)",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"vendor_id\": 1,\n    \"new_password\": \"newpassword123\",\n    \"new_password_confirmation\": \"newpassword123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/set-new-password",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "set-new-password"]
+						},
+						"description": "Set new password on first login. new_password: min 8 chars, must be confirmed."
+					}
+				},
+				{
+					"name": "Vendor Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Vendor Profile",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "name", "value": "Vendor Name", "type": "text" },
+								{ "key": "alternate_mobile", "value": "+919876543210", "description": "Regex: ^\\+[1-9]\\d{1,14}$", "type": "text" },
+								{ "key": "address", "value": "123 Hatchery Road", "type": "text" },
+								{ "key": "pincode", "value": "500001", "type": "text" },
+								{ "key": "profile_image", "type": "file", "src": "", "description": "image|max:2048KB" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/update-profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "update-profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867,\n    \"address\": \"Hatchery Location Address\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/update-location",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "update-location"]
+						}
+					}
+				},
+				{
+					"name": "Register FCM Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fcm_token\": \"your_fcm_token_here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/register-fcm-token",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "register-fcm-token"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Vendor Bookings (Dashboard)",
+			"item": [
+				{
+					"name": "Get Bookings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings?tab=new&search=&category_id=&location_id=&booking_type=&status=&vehicle_availability=&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings"],
+							"query": [
+								{ "key": "tab", "value": "new", "description": "new|current|tracking|past" },
+								{ "key": "search", "value": "", "disabled": true },
+								{ "key": "category_id", "value": "", "disabled": true },
+								{ "key": "location_id", "value": "", "disabled": true },
+								{ "key": "booking_type", "value": "", "description": "hatchery|spot|vehicle|vehicle_availability", "disabled": true },
+								{ "key": "status", "value": "", "description": "1-6", "disabled": true },
+								{ "key": "vehicle_availability", "value": "", "description": "assigned|not_assigned", "disabled": true },
+								{ "key": "page", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Accept Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/accept",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "accept"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Reject Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason_code\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/reject",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "reject"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						},
+						"description": "Reason codes: 1=Delay in processing, 2=Incorrect order, 3=Wrong quantity, 4=Stock quality, 5=Other"
+					}
+				},
+				{
+					"name": "Update Booking",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"no_of_pieces\": 1000,\n    \"salinity\": \"25\",\n    \"dropping_location\": \"Updated Location\",\n    \"packing_date\": \"2026-04-01\",\n    \"price\": 5000,\n    \"delivery_datetime\": \"2026-04-02\",\n    \"vendor_booking_description\": \"Booking notes\",\n    \"vendor_vehicle_description\": \"Vehicle details\",\n    \"driver_name\": \"Driver Name\",\n    \"driver_mobile\": \"9876543210\",\n    \"vehicle_number\": \"TS01AB1234\",\n    \"drop_lat\": 17.385,\n    \"drop_lng\": 78.4867,\n    \"status\": 2,\n    \"delivery_reason\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/update",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "update"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						},
+						"description": "Status: 2=In Progress, 3=Confirmed, 4=Driver Assigned, 5=Delivered, 6=Cancelled"
+					}
+				},
+				{
+					"name": "Remove Driver from Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/remove-driver",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "remove-driver"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Change Driver",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"driver_id\": 1,\n    \"driver_name\": \"New Driver\",\n    \"driver_mobile\": \"9876543210\",\n    \"vehicle_number\": \"TS01AB1234\",\n    \"vehicle_start_date\": \"2026-04-01\",\n    \"vehicle_end_date\": \"2026-04-02\",\n    \"vehicle_start_lat\": 17.385,\n    \"vehicle_start_lng\": 78.4867,\n    \"vehicle_start_address\": \"Start Point Address\",\n    \"priority\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/change-driver",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "change-driver"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Booking Vehicle Tracking",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/bookings/:id/tracking",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "bookings", ":id", "tracking"],
+							"variable": [
+								{ "key": "id", "value": "480", "description": "Booking ID" }
+							]
+						},
+						"description": "Fetch vehicle tracking data for a specific booking.\n\nResponse includes route_waypoints (priority-ordered multi-stop locations) for polyline drawing."
+					}
+				},
+				{
+					"name": "Get Drivers List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/drivers",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "drivers"]
+						}
+					}
+				},
+				{
+					"name": "Tracking Alert Status (All Drivers)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{vendor_token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"description": "Returns tracking alert history for all drivers under this vendor's active (In Journey) bookings.\n\nAlerts are stored with timestamps and shown in descending order (newest first).\nAlerts are only cleared when a booking is delivered (status 5) or cancelled (status 6).\n\nResponse includes:\n- id: alert ID\n- booking_id\n- driver_id, driver_name, driver_mobile\n- reason: alert reason (e.g. GPS off, back online)\n- location_name: last known location\n- time: timestamp of the alert",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/tracking-alert-status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "tracking-alert-status"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Management",
+			"description": "Requires role:hatchery middleware",
+			"item": [
+				{
+					"name": "Register Hatchery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "hatchery_name", "value": "My Hatchery", "type": "text" },
+								{ "key": "category", "value": "Vannamei", "type": "text" },
+								{ "key": "location", "value": "Godavari", "type": "text" },
+								{ "key": "opening_time", "value": "06:00", "type": "text" },
+								{ "key": "closing_time", "value": "18:00", "type": "text" },
+								{ "key": "brand", "value": "Brand Name", "type": "text" },
+								{ "key": "lat", "value": "17.385", "type": "text" },
+								{ "key": "lng", "value": "78.4867", "type": "text" },
+								{ "key": "hatchery_images[]", "type": "file", "src": "", "description": "max:5120KB each" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatcheries",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatcheries"]
+						}
+					}
+				},
+				{
+					"name": "My Hatcheries List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatcheries",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatcheries"]
+						}
+					}
+				},
+				{
+					"name": "Update Hatchery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "hatchery_name", "value": "Updated Hatchery", "type": "text" },
+								{ "key": "category", "value": "Tiger", "type": "text" },
+								{ "key": "location", "value": "Krishna", "type": "text" },
+								{ "key": "opening_time", "value": "07:00", "type": "text" },
+								{ "key": "closing_time", "value": "19:00", "type": "text" },
+								{ "key": "hatchery_images[]", "type": "file", "src": "" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatcheries/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatcheries", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Hatchery",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatcheries/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatcheries", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Seed Management",
+			"item": [
+				{
+					"name": "Create Seed",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "hatchery_id", "value": "1", "type": "text" },
+								{ "key": "categories[]", "value": "Vannamei", "type": "text" },
+								{ "key": "categories[]", "value": "Tiger", "type": "text" },
+								{ "key": "description", "value": "Seed description", "type": "text" },
+								{ "key": "locations", "value": "Location 1, Location 2", "type": "text" },
+								{ "key": "broad_stock", "value": "1000", "type": "text" },
+								{ "key": "stock_available_date", "value": "2026-04-01", "type": "text" },
+								{ "key": "price", "value": "5000", "type": "text" },
+								{ "key": "seed_images[]", "type": "file", "src": "", "description": "max:50MB each" },
+								{ "key": "seed_videos[]", "type": "file", "src": "", "description": "max:500MB each" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/seeds",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "seeds"]
+						}
+					}
+				},
+				{
+					"name": "List Seeds",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/seeds",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "seeds"]
+						}
+					}
+				},
+				{
+					"name": "Get Seed Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/seeds/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "seeds", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Seed",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "hatchery_id", "value": "1", "type": "text" },
+								{ "key": "categories[]", "value": "Vannamei", "type": "text" },
+								{ "key": "description", "value": "Updated description", "type": "text" },
+								{ "key": "price", "value": "6000", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/seeds/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "seeds", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Seed",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/seeds/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "seeds", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Updates (Social Feed)",
+			"item": [
+				{
+					"name": "List Updates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/updates",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "updates"]
+						}
+					}
+				},
+				{
+					"name": "Create Update",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "caption", "value": "New update from our hatchery!", "type": "text" },
+								{ "key": "hashtags[]", "value": "#vannamei", "type": "text" },
+								{ "key": "hashtags[]", "value": "#hatchery", "type": "text" },
+								{ "key": "media_files[]", "type": "file", "src": "", "description": "max:500MB each" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/updates",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "updates"]
+						}
+					}
+				},
+				{
+					"name": "Get Update Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/updates/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "updates", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Update",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/updates/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "updates", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Broodstock Management",
+			"item": [
+				{
+					"name": "List Broodstocks",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/broodstocks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "broodstocks"]
+						}
+					}
+				},
+				{
+					"name": "Create Broodstock",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "hatchery_name", "value": "Hatchery Name", "type": "text" },
+								{ "key": "category[]", "value": "Vannamei", "type": "text" },
+								{ "key": "location", "value": "Godavari", "type": "text" },
+								{ "key": "count", "value": "1000", "type": "text" },
+								{ "key": "available_date", "value": "2026-04-01", "type": "text" },
+								{ "key": "packing_date", "value": "2026-04-01", "type": "text" },
+								{ "key": "images[]", "type": "file", "src": "", "description": "jpg,jpeg,png,heic,heif|max:5120KB" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/broodstocks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "broodstocks"]
+						}
+					}
+				},
+				{
+					"name": "Get Broodstock Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/broodstocks/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "broodstocks", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Broodstock",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/broodstocks/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "broodstocks", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Vehicle Management",
+			"item": [
+				{
+					"name": "List Vehicles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/vehicles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "vehicles"]
+						}
+					}
+				},
+				{
+					"name": "Create Vehicle Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "customer_id", "value": "CUST001", "type": "text" },
+								{ "key": "customer_name", "value": "Customer Name", "type": "text" },
+								{ "key": "customer_mobile", "value": "9876543210", "type": "text" },
+								{ "key": "delivery_location", "value": "Delivery Location", "type": "text" },
+								{ "key": "hatchery_name", "value": "Hatchery Name", "type": "text" },
+								{ "key": "categories[]", "value": "Vannamei", "type": "text" },
+								{ "key": "count", "value": "1000", "type": "text" },
+								{ "key": "driver_name", "value": "Driver Name", "type": "text" },
+								{ "key": "driver_mobile", "value": "9876543210", "type": "text" },
+								{ "key": "vehicle_number", "value": "TS01AB1234", "type": "text" },
+								{ "key": "vehicle_started_date", "value": "2026-04-01", "type": "text" },
+								{ "key": "vehicle_images[]", "type": "file", "src": "", "description": "jpg,jpeg,png|max:5120KB" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/vehicles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "vehicles"]
+						}
+					}
+				},
+				{
+					"name": "Get Vehicle Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/vehicles/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "vehicles", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Vehicle",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/vehicles/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "vehicles", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Notification Settings",
+			"item": [
+				{
+					"name": "Get Notification Settings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/notifications",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "notifications"]
+						}
+					}
+				},
+				{
+					"name": "Update Notification Settings",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"seed_updates\": true,\n    \"hatchery_updates\": false,\n    \"broodstock_updates\": true,\n    \"vehicle_updates\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/notifications",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "notifications"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Bookings (role:hatchery)",
+			"item": [
+				{
+					"name": "Get Hatchery Bookings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatchery/bookings",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatchery", "bookings"]
+						}
+					}
+				},
+				{
+					"name": "Create Hatchery Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customer_name\": \"Customer Name\",\n    \"customer_mobile\": \"9876543210\",\n    \"hatchery_id\": 1,\n    \"category_id\": 1,\n    \"no_of_pieces\": 1000,\n    \"price\": 5000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatchery/bookings",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatchery", "bookings"]
+						}
+					}
+				},
+				{
+					"name": "Cancel Hatchery Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatchery/bookings/:id/cancel",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatchery", "bookings", ":id", "cancel"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Hatchery Booking Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/hatchery/bookings/:id/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "hatchery", "bookings", ":id", "status"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin Bookings (role:admin)",
+			"item": [
+				{
+					"name": "Get Admin Bookings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/admin/bookings",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "admin", "bookings"]
+						}
+					}
+				},
+				{
+					"name": "Update Admin Booking Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": 3\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/vendor/admin/bookings/:id/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "admin", "bookings", ":id", "status"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Cancel Admin Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/vendor/admin/bookings/:id/cancel",
+							"host": ["{{base_url}}"],
+							"path": ["api", "vendor", "admin", "bookings", ":id", "cancel"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Driver Authentication",
+			"item": [
+				{
+					"name": "Driver Login (Send OTP)",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "login"]
+						}
+					}
+				},
+				{
+					"name": "Driver Send OTP",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/send-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "send-otp"]
+						}
+					}
+				},
+				{
+					"name": "Driver Verify OTP",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.token) {",
+									"        pm.collectionVariables.set('driver_token', json.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\",\n    \"otp_code\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/verify-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "verify-otp"]
+						}
+					}
+				},
+				{
+					"name": "Driver Resend OTP",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/resend-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "resend-otp"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Driver Profile & Location",
+			"item": [
+				{
+					"name": "Driver Profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/driver/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Driver Update Profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "name", "value": "Driver Name", "type": "text" },
+								{ "key": "profile_image", "type": "file", "src": "" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/update-profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "update-profile"]
+						}
+					}
+				},
+				{
+					"name": "Driver Update Location",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867,\n    \"address\": \"Current Location\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/update-location",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "update-location"]
+						}
+					}
+				},
+				{
+					"name": "Driver Logout",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/driver/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "logout"]
+						}
+					}
+				},
+				{
+					"name": "Driver Register FCM Token",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fcm_token\": \"your_fcm_token_here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/register-fcm-token",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "register-fcm-token"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Driver Bookings & Tracking",
+			"item": [
+				{
+					"name": "Driver Bookings",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/driver/bookings",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "bookings"]
+						}
+					}
+				},
+				{
+					"name": "Start Journey",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867,\n    \"address\": \"Starting Point\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/start-journey",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "start-journey"]
+						}
+					}
+				},
+				{
+					"name": "Update Driver Location (Live Tracking)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"latitude\": 17.390,\n    \"longitude\": 78.490,\n    \"address\": \"On the way\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/location/update",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "location", "update"]
+						}
+					}
+				},
+				{
+					"name": "Update Drop Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"status\": \"delivered\",\n    \"latitude\": 17.395,\n    \"longitude\": 78.495\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/update-drop-status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "update-drop-status"]
+						}
+					}
+				},
+				{
+					"name": "Get Tracking Alert Status",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"description": "Returns current tracking alert status for all active bookings of the driver.\n\nResponse includes:\n- booking_id, booking_uid\n- reason: current alert reason (null if no alert)\n- has_alert: true/false\n- last_location_update: when driver last sent location",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/driver/tracking-alert-status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "tracking-alert-status"]
+						}
+					}
+				},
+				{
+					"name": "Tracking Alert (GPS/Network/Permission Issue)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{driver_token}}", "type": "string" }]
+						},
+						"method": "POST",
+						"description": "Flutter sends this when driver's GPS, network, or permissions change.\n\nissue_type values:\n- gps_off: Driver turned off GPS/Location\n- internet_off: Driver internet connection is down\n- permission_denied: Location permissions not enabled\n- tracking_stopped: Device stopped sending location\n- tracking_restarted: Tracking resumed (clears the alert)\n\nThis saves the reason in driver_inactive_reason column and sends FCM notification to vendor.\nReason auto-clears when driver sends location update.",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"issue_type\": \"gps_off\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/driver/tracking-alert",
+							"host": ["{{base_url}}"],
+							"path": ["api", "driver", "tracking-alert"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

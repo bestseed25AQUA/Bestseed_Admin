@@ -1,0 +1,62 @@
+*.log
+.DS_Store
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.fleet
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/public/uploads/
+/storage/*.key
+/storage/pail
+/vendor
+Homestead.json
+Homestead.yaml
+Thumbs.db
+.env
+public/uploads/category_media/1770369159_6985b087f238e_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770369160_6985b0884dbb9_pexels-erwin-bosman-118283-35580900.jpg
+public/uploads/category_media/1770369160_6985b0884e753_pexels-charmain-33721760.jpg
+public/uploads/category_media/1770369160_6985b0884f258_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770369160_6985b0887ea71_pexels-erwin-bosman-118283-35580900.jpg
+public/uploads/category_media/1770369160_6985b0887f1e3_pexels-charmain-33721760.jpg
+public/uploads/hatchery_logos/1770369159_logo_6985b087f1839.jpg
+public/uploads/hatchery_reports/1770369160_report_6985b0887f8e9_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770369160_report_6985b0887fd77_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/updates/1770358886_6985886697d5d.mp4
+public/uploads/updates/1770358887_6985886788b0b.jpg
+public/uploads/updates/1770359506_69858ad2e593e.jpg
+public/uploads/updates/1770359719_69858ba7d844a.mp4
+public/uploads/updates/1770360901_6985904563a56.jpg
+public/uploads/updates/thumbnails/1770359506_thumb_69858ad2e5202.jpg
+public/uploads/updates/thumbnails/1770359719_thumb_69858ba7d7ed5.jpg
+public/uploads/vehicle_gallery/vehicle_12_1770375243_1.mp4
+public/uploads/vehicle_gallery/vehicle_12_1770375244_2.jpg
+public/uploads/category_media/1770468048_698732d05da93_pexels-erwin-bosman-118283-35580900.jpg
+public/uploads/category_media/1770468048_698732d06680a_pexels-charmain-33721760.jpg
+public/uploads/category_media/1770468200_6987336899176_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770468201_6987336970f9e_pexels-erwin-bosman-118283-35580900.jpg
+public/uploads/category_media/1770468845_698735ed4ad83_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770469013_69873695a6945_pexels-erwin-bosman-118283-35580900.jpg
+public/uploads/category_media/1770469013_698736955b6a9_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770469202_69873752df7b5_1416529-sd_640_360_30fps.mp4
+public/uploads/category_media/1770469278_6987379e8885c_1416529-sd_640_360_30fps.mp4
+public/uploads/hatchery_reports/1770468048_report_698732d066bc9_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770468201_report_6987336971494_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770468846_report_698735eea40b0_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770469013_report_69873695a6d45_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770469203_report_69873753227c3_Best Seeds Client Requirements _ Changes.pdf
+public/uploads/hatchery_reports/1770469278_report_6987379ec1ffc_Best Seeds Client Requirements _ Changes.pdf
+
+# Stray dev/test artifacts
+tmpclaude-*
+_sim_results.txt

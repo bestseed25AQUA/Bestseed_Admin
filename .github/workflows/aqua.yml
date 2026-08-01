@@ -1,0 +1,21 @@
+name: Auto Deploy in client Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Hostinger
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 187.127.144.51
+          username: u997602530
+          key: ${{ secrets.CLIENT_SERVER_SSH_KEY }}
+          port: 65002
+          script: |
+            /home/u997602530/auto-deploy.sh

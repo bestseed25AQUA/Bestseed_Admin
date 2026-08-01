@@ -1,0 +1,75 @@
+{
+    "booking_id": 591,
+    "scenario": "multi_reroute",
+    "config": {
+        "interval_min": 5,
+        "interval_max": 10,
+        "max_points": 400,
+        "via": "",
+        "pickup": "",
+        "driverloc": "17.1456,79.6324"
+    },
+    "pickup": {
+        "lat": 17.1456,
+        "lng": 79.6324
+    },
+    "drop": {
+        "lat": 17.0577054,
+        "lng": 79.26836229999999
+    },
+    "route_size": 323,
+    "steps": [
+        {
+            "step": 0,
+            "virtual_time": 10,
+            "mode": "stop",
+            "speed_kmh": 0,
+            "event": "",
+            "progress_m": 46635.4,
+            "simulated": [
+                17.057654,
+                79.268332
+            ],
+            "dist_prev_m": 0,
+            "accepted": false,
+            "response": {
+                "status": false,
+                "message": "GPS spike rejected \u2014 location not updated.",
+                "_http_code": 422
+            },
+            "tracking": null
+        },
+        {
+            "step": 1,
+            "virtual_time": 20,
+            "mode": "city_slow",
+            "speed_kmh": 16,
+            "event": "",
+            "progress_m": 46647,
+            "simulated": [
+                17.057726,
+                79.268241
+            ],
+            "dist_prev_m": 0,
+            "accepted": false,
+            "response": {
+                "status": false,
+                "message": "GPS spike rejected \u2014 location not updated.",
+                "_http_code": 422
+            },
+            "tracking": null
+        }
+    ],
+    "validation": {
+        "timeline_count": 2,
+        "max_jump_m": 33.5,
+        "backward_count": 0,
+        "checks": {
+            "no_jumps_over_150m": true,
+            "no_backward_movement": true,
+            "final_point_near_drop": false
+        },
+        "overall_pass": false
+    },
+    "finished_at": "2026-04-11T13:24:14+00:00"
+}

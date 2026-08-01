@@ -1,0 +1,26 @@
+{
+    "booking_ids": [
+        775
+    ],
+    "scenario": "gps_drift_stationary",
+    "drops": [
+        {
+            "lat": 17.443104,
+            "lng": 78.39082169999999,
+            "booking_id": 775,
+            "name": "Ayappa Society, Madhapur, Hyderabad, Telangana, 500081, India"
+        }
+    ],
+    "route_km": 6.9,
+    "steps": [],
+    "validation": {
+        "timeline_count": 140,
+        "max_jump_m": 59.1,
+        "checks": {
+            "no_large_jumps": true,
+            "final_point_near_drop": true
+        },
+        "overall_pass": true
+    },
+    "finished_at": "2026-05-19T12:10:26+02:00"
+}

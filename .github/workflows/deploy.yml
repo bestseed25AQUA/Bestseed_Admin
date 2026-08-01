@@ -1,0 +1,19 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: 217.21.82.161
+        username: u606764367
+        key: ${{ secrets.HOSTINGER_SSH_KEY }}
+        port: 65002
+        script: bash ~/auto-deploy.sh

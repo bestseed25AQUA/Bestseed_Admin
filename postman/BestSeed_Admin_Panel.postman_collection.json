@@ -1,0 +1,1151 @@
+{
+	"info": {
+		"name": "BestSeeds - Admin Panel (Web)",
+		"description": "API/Web routes collection for the BestSeeds Admin Panel.\n\nAuthentication: Session-based (email + password + 2FA OTP).\nMiddleware: auth + IsAdmin\n\nNote: Admin panel uses web routes (session cookies). Set cookies after login.\n\nBase URL: {{base_url}}/admin",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://aqua.bestseed.in",
+			"type": "string"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"exec": [
+					"// Admin panel uses session cookies - ensure cookies are enabled in Postman"
+				],
+				"type": "text/javascript"
+			}
+		}
+	],
+	"item": [
+		{
+			"name": "Authentication & OTP",
+			"item": [
+				{
+					"name": "Login Page",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": ["{{base_url}}"],
+							"path": ["login"]
+						},
+						"description": "Returns the login form. Extract CSRF token from response."
+					}
+				},
+				{
+					"name": "Login (Submit)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+							{ "key": "X-CSRF-TOKEN", "value": "{{csrf_token}}" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "email", "value": "admin@example.com", "type": "text" },
+								{ "key": "password", "value": "password", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": ["{{base_url}}"],
+							"path": ["login"]
+						},
+						"description": "Submit login credentials. On success, redirects to OTP page."
+					}
+				},
+				{
+					"name": "OTP Verification Page",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/otp",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "otp"]
+						}
+					}
+				},
+				{
+					"name": "Verify OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "otp", "value": "123456", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/otp",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "otp"]
+						}
+					}
+				},
+				{
+					"name": "Resend OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/otp/resend",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "otp", "resend"]
+						}
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/logout",
+							"host": ["{{base_url}}"],
+							"path": ["logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin Profile",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/profile",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "name", "value": "Admin Name", "type": "text" },
+								{ "key": "email", "value": "admin@example.com", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/profile",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "profile"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Dashboard",
+			"item": [
+				{
+					"name": "Admin Dashboard",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin",
+							"host": ["{{base_url}}"],
+							"path": ["admin"]
+						}
+					}
+				},
+				{
+					"name": "Check FFmpeg Status",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/check-ffmpeg",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "check-ffmpeg"]
+						},
+						"description": "Returns JSON with FFmpeg availability and video compression status."
+					}
+				}
+			]
+		},
+		{
+			"name": "Vendor Management",
+			"item": [
+				{
+					"name": "List Vendors",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors"]
+						}
+					}
+				},
+				{
+					"name": "Create Vendor (Form)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/create",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", "create"]
+						}
+					}
+				},
+				{
+					"name": "Store Vendor",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "name", "value": "New Vendor", "type": "text" },
+								{ "key": "mobile", "value": "9876543210", "type": "text" },
+								{ "key": "email", "value": "vendor@example.com", "type": "text" },
+								{ "key": "address", "value": "Vendor Address", "type": "text" },
+								{ "key": "pincode", "value": "500001", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendors",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors"]
+						}
+					}
+				},
+				{
+					"name": "Show Vendor",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:id",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Edit Vendor (Form)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:id/edit",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":id", "edit"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Update Vendor",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "_method", "value": "PUT", "type": "text" },
+								{ "key": "name", "value": "Updated Vendor", "type": "text" },
+								{ "key": "mobile", "value": "9876543210", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:id",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Delete Vendor",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:id",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Get Vendor Credentials",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:vendor/credentials",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":vendor", "credentials"],
+							"variable": [{ "key": "vendor", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Activate/Deactivate Vendor",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:vendor/activate",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":vendor", "activate"],
+							"variable": [{ "key": "vendor", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Reset Vendor Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:vendor/reset-password",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":vendor", "reset-password"],
+							"variable": [{ "key": "vendor", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Check Vendor Hatcheries",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/vendors/:vendor/check-hatcheries",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendors", ":vendor", "check-hatcheries"],
+							"variable": [{ "key": "vendor", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Delete Vendor Profile Image",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "vendor_id", "value": "1", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/vendor-profile-image-delete",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "vendor-profile-image-delete"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Categories",
+			"item": [
+				{
+					"name": "List Categories",
+					"request": {
+						"method": "GET",
+						"url": { "raw": "{{base_url}}/admin/hatchery-categories", "host": ["{{base_url}}"], "path": ["admin", "hatchery-categories"] }
+					}
+				},
+				{
+					"name": "Create Category (Form)",
+					"request": {
+						"method": "GET",
+						"url": { "raw": "{{base_url}}/admin/hatchery-categories/create", "host": ["{{base_url}}"], "path": ["admin", "hatchery-categories", "create"] }
+					}
+				},
+				{
+					"name": "Store Category",
+					"request": {
+						"method": "POST",
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "category_name", "value": "Vannamei", "type": "text" }
+							]
+						},
+						"url": { "raw": "{{base_url}}/admin/hatchery-categories", "host": ["{{base_url}}"], "path": ["admin", "hatchery-categories"] }
+					}
+				},
+				{
+					"name": "Update Category",
+					"request": {
+						"method": "PUT",
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "category_name", "value": "Updated Category", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/hatchery-categories/:id",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "hatchery-categories", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Delete Category",
+					"request": {
+						"method": "DELETE",
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/hatchery-categories/:id",
+							"host": ["{{base_url}}"],
+							"path": ["admin", "hatchery-categories", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				},
+				{
+					"name": "Remove Category Image",
+					"request": {
+						"method": "POST",
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+								{ "key": "category_id", "value": "1", "type": "text" }
+							]
+						},
+						"url": { "raw": "{{base_url}}/admin/hatchery-categories/remove-image", "host": ["{{base_url}}"], "path": ["admin", "hatchery-categories", "remove-image"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Locations",
+			"item": [
+				{
+					"name": "List Locations",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-locations", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations"] } }
+				},
+				{
+					"name": "Create Location",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-locations/create", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", "create"] } }
+				},
+				{
+					"name": "Store Location",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [
+							{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+							{ "key": "title", "value": "Godavari", "type": "text" },
+							{ "key": "subtitle", "value": "Godavari, India", "type": "text" },
+							{ "key": "latitude", "value": "16.5898", "type": "text" },
+							{ "key": "longitude", "value": "81.8638", "type": "text" }
+						] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-locations", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations"] }
+					}
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PUT",
+						"body": { "mode": "urlencoded", "urlencoded": [
+							{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+							{ "key": "title", "value": "Updated Location", "type": "text" }
+						] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-locations/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", ":id"], "variable": [{ "key": "id", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-locations/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", ":id"], "variable": [{ "key": "id", "value": "1" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Location Branches",
+			"item": [
+				{
+					"name": "List Branches",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-locations/:location/branches", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", ":location", "branches"], "variable": [{ "key": "location", "value": "1" }] } }
+				},
+				{
+					"name": "Create Branch (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-locations/:location/branches/create", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", ":location", "branches", "create"], "variable": [{ "key": "location", "value": "1" }] } }
+				},
+				{
+					"name": "Store Branch",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [
+							{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+							{ "key": "name", "value": "Branch Name", "type": "text" },
+							{ "key": "address", "value": "Branch Address", "type": "text" }
+						] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-locations/:location/branches", "host": ["{{base_url}}"], "path": ["admin", "hatchery-locations", ":location", "branches"], "variable": [{ "key": "location", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Edit Branch",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-location-branches/:branch/edit", "host": ["{{base_url}}"], "path": ["admin", "hatchery-location-branches", ":branch", "edit"], "variable": [{ "key": "branch", "value": "1" }] } }
+				},
+				{
+					"name": "Update Branch",
+					"request": {
+						"method": "PUT",
+						"body": { "mode": "urlencoded", "urlencoded": [
+							{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+							{ "key": "name", "value": "Updated Branch", "type": "text" }
+						] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-location-branches/:branch", "host": ["{{base_url}}"], "path": ["admin", "hatchery-location-branches", ":branch"], "variable": [{ "key": "branch", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Delete Branch",
+					"request": {
+						"method": "DELETE",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/hatchery-location-branches/:branch", "host": ["{{base_url}}"], "path": ["admin", "hatchery-location-branches", ":branch"], "variable": [{ "key": "branch", "value": "1" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatcheries",
+			"item": [
+				{
+					"name": "List Hatcheries",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatcheries", "host": ["{{base_url}}"], "path": ["admin", "hatcheries"] } }
+				},
+				{
+					"name": "Create Hatchery (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatcheries/create", "host": ["{{base_url}}"], "path": ["admin", "hatcheries", "create"] } }
+				},
+				{
+					"name": "Store Hatchery",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "hatchery_name", "value": "New Hatchery", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/hatcheries", "host": ["{{base_url}}"], "path": ["admin", "hatcheries"] }
+					}
+				},
+				{
+					"name": "Show Hatchery",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Hatchery",
+					"request": {
+						"method": "PUT",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "hatchery_name", "value": "Updated", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Delete Hatchery",
+					"request": {
+						"method": "DELETE",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Get Branches by Location",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/get-branches/:locationId", "host": ["{{base_url}}"], "path": ["admin", "get-branches", ":locationId"], "variable": [{ "key": "locationId", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Spot Hatcheries",
+			"item": [
+				{
+					"name": "List Spot Hatcheries",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/spot-hatcheries", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries"] } }
+				},
+				{
+					"name": "Create Spot Hatchery (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/spot-hatcheries/create", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries", "create"] } }
+				},
+				{
+					"name": "Store Spot Hatchery",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/spot-hatcheries", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries"] } }
+				},
+				{
+					"name": "Show Spot Hatchery",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/spot-hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Spot Hatchery",
+					"request": { "method": "PUT", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/spot-hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Spot Hatchery",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/spot-hatcheries/:id", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Get Hatchery Details (for Spot)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/spot-hatcheries/get-hatchery-details/:id", "host": ["{{base_url}}"], "path": ["admin", "spot-hatcheries", "get-hatchery-details", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Vehicle Availability",
+			"item": [
+				{
+					"name": "List Vehicle Availability",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/vehicle-availability", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability"] } }
+				},
+				{
+					"name": "Create Vehicle Availability (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/vehicle-availability/create", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability", "create"] } }
+				},
+				{
+					"name": "Store Vehicle Availability",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/vehicle-availability", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability"] } }
+				},
+				{
+					"name": "Show Vehicle Availability",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/vehicle-availability/:id", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Vehicle Availability",
+					"request": { "method": "PUT", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/vehicle-availability/:id", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Vehicle Availability",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/vehicle-availability/:id", "host": ["{{base_url}}"], "path": ["admin", "vehicle-availability", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Vehicle Gallery Item",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/vehicle-gallery/:id", "host": ["{{base_url}}"], "path": ["admin", "vehicle-gallery", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Hatchery Updates",
+			"item": [
+				{
+					"name": "List Updates",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-updates", "host": ["{{base_url}}"], "path": ["admin", "hatchery-updates"] } }
+				},
+				{
+					"name": "Store Update",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/hatchery-updates", "host": ["{{base_url}}"], "path": ["admin", "hatchery-updates"] } }
+				},
+				{
+					"name": "Show Update",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-updates/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-updates", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Update",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/hatchery-updates/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-updates", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Hatchery Seeds",
+			"item": [
+				{
+					"name": "List Seeds",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-seeds", "host": ["{{base_url}}"], "path": ["admin", "hatchery-seeds"] } }
+				},
+				{
+					"name": "Store Seed",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/hatchery-seeds", "host": ["{{base_url}}"], "path": ["admin", "hatchery-seeds"] } }
+				},
+				{
+					"name": "Show Seed",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/hatchery-seeds/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-seeds", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Seed",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/hatchery-seeds/:id", "host": ["{{base_url}}"], "path": ["admin", "hatchery-seeds", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Seed Requests",
+			"item": [
+				{
+					"name": "List Seed Requests",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/seed-requests", "host": ["{{base_url}}"], "path": ["admin", "seed-requests"] } }
+				},
+				{
+					"name": "Show Seed Request",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/seed-requests/:id", "host": ["{{base_url}}"], "path": ["admin", "seed-requests", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Seed Request Status",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "status", "value": "approved", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/seed-requests/:id/status", "host": ["{{base_url}}"], "path": ["admin", "seed-requests", ":id", "status"], "variable": [{ "key": "id", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Delete Seed Request",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/seed-requests/:id", "host": ["{{base_url}}"], "path": ["admin", "seed-requests", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Broodstock",
+			"item": [
+				{
+					"name": "List Broodstocks",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/broad-stocks", "host": ["{{base_url}}"], "path": ["admin", "broad-stocks"] } }
+				},
+				{
+					"name": "Store Broodstock",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/broad-stocks", "host": ["{{base_url}}"], "path": ["admin", "broad-stocks"] } }
+				},
+				{
+					"name": "Show Broodstock",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/broad-stocks/:id", "host": ["{{base_url}}"], "path": ["admin", "broad-stocks", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Broodstock",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/broad-stocks/:id", "host": ["{{base_url}}"], "path": ["admin", "broad-stocks", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Bookings",
+			"item": [
+				{
+					"name": "List Bookings",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/bookings", "host": ["{{base_url}}"], "path": ["admin", "bookings"] } }
+				},
+				{
+					"name": "Create Booking (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/bookings/create", "host": ["{{base_url}}"], "path": ["admin", "bookings", "create"] } }
+				},
+				{
+					"name": "Store Booking",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/bookings", "host": ["{{base_url}}"], "path": ["admin", "bookings"] } }
+				},
+				{
+					"name": "Show Booking",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/bookings/:id", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Booking Tracking Page",
+					"request": { "method": "GET", "description": "Admin tracking page with multi-stop priority route, polyline, and live driver location.", "url": { "raw": "{{base_url}}/admin/bookings/:booking/tracking", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":booking", "tracking"], "variable": [{ "key": "booking", "value": "480", "description": "Booking ID" }] } }
+				},
+				{
+					"name": "Booking Tracking Data (JSON)",
+					"request": { "method": "GET", "description": "JSON endpoint returning pickup, drop, driver_location, timeline, route_waypoints (priority-ordered), and booking priority.", "url": { "raw": "{{base_url}}/admin/bookings/:booking/tracking-data", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":booking", "tracking-data"], "variable": [{ "key": "booking", "value": "480", "description": "Booking ID" }] } }
+				},
+				{
+					"name": "Update Booking Status",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "status", "value": "2", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/bookings/:booking/status", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":booking", "status"], "variable": [{ "key": "booking", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Assign Driver to Booking",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "driver_id", "value": "1", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/bookings/:booking/assign-driver", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":booking", "assign-driver"], "variable": [{ "key": "booking", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Cancel Booking",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/bookings/:booking/cancel", "host": ["{{base_url}}"], "path": ["admin", "bookings", ":booking", "cancel"], "variable": [{ "key": "booking", "value": "1" }] }
+					}
+				},
+				{
+					"name": "Get Hatchery Details (for Booking)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/bookings/get-hatchery/:id", "host": ["{{base_url}}"], "path": ["admin", "bookings", "get-hatchery", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Store Driver (for Booking)",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "booking_id", "value": "1", "type": "text" }, { "key": "driver_name", "value": "Driver Name", "type": "text" }, { "key": "driver_mobile", "value": "9876543210", "type": "text" }, { "key": "vehicle_number", "value": "TS01AB1234", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/bookings/store-driver", "host": ["{{base_url}}"], "path": ["admin", "bookings", "store-driver"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Banners",
+			"item": [
+				{
+					"name": "List Banners",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/banners", "host": ["{{base_url}}"], "path": ["admin", "banners"] } }
+				},
+				{
+					"name": "Store Banner",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/banners", "host": ["{{base_url}}"], "path": ["admin", "banners"] } }
+				},
+				{
+					"name": "Show Banner",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/banners/:id", "host": ["{{base_url}}"], "path": ["admin", "banners", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Banner",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/banners/:id", "host": ["{{base_url}}"], "path": ["admin", "banners", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Drivers",
+			"item": [
+				{
+					"name": "List Drivers",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/drivers", "host": ["{{base_url}}"], "path": ["admin", "drivers"] } }
+				},
+				{
+					"name": "Store Driver",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "name", "value": "Driver Name", "type": "text" }, { "key": "mobile", "value": "9876543210", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/drivers", "host": ["{{base_url}}"], "path": ["admin", "drivers"] } }
+				},
+				{
+					"name": "Show Driver",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/drivers/:id", "host": ["{{base_url}}"], "path": ["admin", "drivers", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Driver",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/drivers/:id", "host": ["{{base_url}}"], "path": ["admin", "drivers", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Toggle Driver Status",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] },
+						"url": { "raw": "{{base_url}}/admin/drivers/:driver/toggle-status", "host": ["{{base_url}}"], "path": ["admin", "drivers", ":driver", "toggle-status"], "variable": [{ "key": "driver", "value": "1" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "List Users",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/user_profile", "host": ["{{base_url}}"], "path": ["admin", "user_profile"] } }
+				},
+				{
+					"name": "Show User",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/user_profile/:id", "host": ["{{base_url}}"], "path": ["admin", "user_profile", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Market Prices",
+			"item": [
+				{
+					"name": "List Prices",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/market_prices", "host": ["{{base_url}}"], "path": ["admin", "market_prices"] } }
+				},
+				{
+					"name": "Store Price",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/market_prices", "host": ["{{base_url}}"], "path": ["admin", "market_prices"] } }
+				},
+				{
+					"name": "Show Price",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/market_prices/:id", "host": ["{{base_url}}"], "path": ["admin", "market_prices", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Price",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/market_prices/:id", "host": ["{{base_url}}"], "path": ["admin", "market_prices", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "News",
+			"item": [
+				{
+					"name": "List News",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/news", "host": ["{{base_url}}"], "path": ["admin", "news"] } }
+				},
+				{
+					"name": "Store News",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/news", "host": ["{{base_url}}"], "path": ["admin", "news"] } }
+				},
+				{
+					"name": "Show News",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/news/:id", "host": ["{{base_url}}"], "path": ["admin", "news", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete News",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/news/:id", "host": ["{{base_url}}"], "path": ["admin", "news", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Best Deals",
+			"item": [
+				{
+					"name": "List Deals",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/best-deals", "host": ["{{base_url}}"], "path": ["admin", "best-deals"] } }
+				},
+				{
+					"name": "Store Deal",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/best-deals", "host": ["{{base_url}}"], "path": ["admin", "best-deals"] } }
+				},
+				{
+					"name": "Show Deal",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/best-deals/:id", "host": ["{{base_url}}"], "path": ["admin", "best-deals", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Deal",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/best-deals/:id", "host": ["{{base_url}}"], "path": ["admin", "best-deals", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Contacts",
+			"item": [
+				{
+					"name": "List Contacts",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/contacts", "host": ["{{base_url}}"], "path": ["admin", "contacts"] } }
+				},
+				{
+					"name": "Store Contact",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/contacts", "host": ["{{base_url}}"], "path": ["admin", "contacts"] } }
+				},
+				{
+					"name": "Delete Contact",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/contacts/:id", "host": ["{{base_url}}"], "path": ["admin", "contacts", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Push Notifications",
+			"item": [
+				{
+					"name": "List Notifications",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/notifications", "host": ["{{base_url}}"], "path": ["admin", "notifications"] } }
+				},
+				{
+					"name": "Create Notification (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/notifications/create", "host": ["{{base_url}}"], "path": ["admin", "notifications", "create"] } }
+				},
+				{
+					"name": "Send Notification",
+					"request": {
+						"method": "POST",
+						"body": { "mode": "urlencoded", "urlencoded": [
+							{ "key": "_token", "value": "{{csrf_token}}", "type": "text" },
+							{ "key": "title", "value": "Notification Title", "type": "text" },
+							{ "key": "body", "value": "Notification body text", "type": "text" },
+							{ "key": "target", "value": "all", "description": "all|specific", "type": "text" }
+						] },
+						"url": { "raw": "{{base_url}}/admin/notifications", "host": ["{{base_url}}"], "path": ["admin", "notifications"] }
+					}
+				},
+				{
+					"name": "Search Farmers (for targeting)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/notifications/search-farmers?q=farmer", "host": ["{{base_url}}"], "path": ["admin", "notifications", "search-farmers"], "query": [{ "key": "q", "value": "farmer" }] } }
+				},
+				{
+					"name": "Delete Notification",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/notifications/:id", "host": ["{{base_url}}"], "path": ["admin", "notifications", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "App Configuration",
+			"item": [
+				{
+					"name": "Broodstock Config",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/app-config/broodstock", "host": ["{{base_url}}"], "path": ["admin", "app-config", "broodstock"] } }
+				},
+				{
+					"name": "Update Broodstock Config",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/app-config/broodstock", "host": ["{{base_url}}"], "path": ["admin", "app-config", "broodstock"] } }
+				},
+				{
+					"name": "Seed Price Config",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/app-config/seed-price", "host": ["{{base_url}}"], "path": ["admin", "app-config", "seed-price"] } }
+				},
+				{
+					"name": "Update Seed Price Config",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/app-config/seed-price", "host": ["{{base_url}}"], "path": ["admin", "app-config", "seed-price"] } }
+				},
+				{
+					"name": "Booking Description Config",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/app-config/booking-description", "host": ["{{base_url}}"], "path": ["admin", "app-config", "booking-description"] } }
+				},
+				{
+					"name": "Update Booking Description Config",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/app-config/booking-description", "host": ["{{base_url}}"], "path": ["admin", "app-config", "booking-description"] } }
+				}
+			]
+		},
+		{
+			"name": "Role Management",
+			"item": [
+				{
+					"name": "List Roles",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/roles", "host": ["{{base_url}}"], "path": ["admin", "roles"] } }
+				},
+				{
+					"name": "Create Role (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/roles/create", "host": ["{{base_url}}"], "path": ["admin", "roles", "create"] } }
+				},
+				{
+					"name": "Store Role",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "name", "value": "editor", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/roles", "host": ["{{base_url}}"], "path": ["admin", "roles"] } }
+				},
+				{
+					"name": "Show Role",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/roles/:id", "host": ["{{base_url}}"], "path": ["admin", "roles", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Role",
+					"request": { "method": "PUT", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "name", "value": "updated-role", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/roles/:id", "host": ["{{base_url}}"], "path": ["admin", "roles", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Role",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/roles/:id", "host": ["{{base_url}}"], "path": ["admin", "roles", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Sub-Admin Management",
+			"item": [
+				{
+					"name": "List Sub-Admins",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/sub-admins", "host": ["{{base_url}}"], "path": ["admin", "sub-admins"] } }
+				},
+				{
+					"name": "Create Sub-Admin (Form)",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/sub-admins/create", "host": ["{{base_url}}"], "path": ["admin", "sub-admins", "create"] } }
+				},
+				{
+					"name": "Store Sub-Admin",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "name", "value": "Sub Admin", "type": "text" }, { "key": "email", "value": "subadmin@example.com", "type": "text" }, { "key": "password", "value": "password123", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/sub-admins", "host": ["{{base_url}}"], "path": ["admin", "sub-admins"] } }
+				},
+				{
+					"name": "Show Sub-Admin",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/sub-admins/:id", "host": ["{{base_url}}"], "path": ["admin", "sub-admins", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Update Sub-Admin",
+					"request": { "method": "PUT", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }, { "key": "name", "value": "Updated Sub Admin", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/sub-admins/:id", "host": ["{{base_url}}"], "path": ["admin", "sub-admins", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Delete Sub-Admin",
+					"request": { "method": "DELETE", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/sub-admins/:id", "host": ["{{base_url}}"], "path": ["admin", "sub-admins", ":id"], "variable": [{ "key": "id", "value": "1" }] } }
+				},
+				{
+					"name": "Toggle Sub-Admin Status",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/sub-admins/:id/toggle-status", "host": ["{{base_url}}"], "path": ["admin", "sub-admins", ":id", "toggle-status"], "variable": [{ "key": "id", "value": "1" }] } }
+				}
+			]
+		},
+		{
+			"name": "Site Settings",
+			"item": [
+				{
+					"name": "Get Settings",
+					"request": { "method": "GET", "url": { "raw": "{{base_url}}/admin/site-settings", "host": ["{{base_url}}"], "path": ["admin", "site-settings"] } }
+				},
+				{
+					"name": "Update Settings",
+					"request": { "method": "POST", "body": { "mode": "urlencoded", "urlencoded": [{ "key": "_token", "value": "{{csrf_token}}", "type": "text" }] }, "url": { "raw": "{{base_url}}/admin/site-settings", "host": ["{{base_url}}"], "path": ["admin", "site-settings"] } }
+				}
+			]
+		},
+		{
+			"name": "Public Routes",
+			"item": [
+				{
+					"name": "Public Hatchery Update Page",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"url": { "raw": "{{base_url}}/hatchery-update/:id", "host": ["{{base_url}}"], "path": ["hatchery-update", ":id"], "variable": [{ "key": "id", "value": "1" }] }
+					},
+					"description": "Public shareable page for hatchery updates (no auth required)."
+				}
+			]
+		}
+	]
+}

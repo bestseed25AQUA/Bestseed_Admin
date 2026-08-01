@@ -1,0 +1,204 @@
+{
+    "booking_ids": [
+        710
+    ],
+    "scenario": "clean_drive",
+    "drops": [
+        {
+            "lat": 17.4485698,
+            "lng": 78.3837034,
+            "booking_id": 710,
+            "name": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India"
+        }
+    ],
+    "route_km": 3.84,
+    "steps": [
+        {
+            "step": 0,
+            "virtual_time": 8,
+            "mode": "city_move",
+            "speed_kmh": 35,
+            "progress_m": 136.5,
+            "simulated": [
+                17.439993,
+                78.39834
+            ],
+            "dist_prev_m": 0,
+            "accepted": true,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.8km",
+            "responses": {
+                "710": {
+                    "status": true,
+                    "message": "Driver location updated successfully.",
+                    "data": {
+                        "booking_id": 710,
+                        "driver_lat": 17.439993,
+                        "driver_lng": 78.39834,
+                        "driver_location_name": "Hyderabad, TS",
+                        "updated_at": "2026-05-05 18:08:45"
+                    },
+                    "_http_code": 200
+                }
+            },
+            "timeline": {
+                "710": {
+                    "driver_at": "\u2014",
+                    "passed": 1,
+                    "total": 4,
+                    "stops": [
+                        {
+                            "name": "Guttala_Begumpet",
+                            "lat": 17.441137,
+                            "lng": 78.397451,
+                            "dist_fraction": 0.076923,
+                            "is_key_stop": false,
+                            "passed_at": "2026-05-05T18:03:05+05:30",
+                            "estimated_arrival": "6:03 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Mega Hills",
+                            "lat": 17.45171,
+                            "lng": 78.393616,
+                            "dist_fraction": 0.538462,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:11 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Jaihind Enclave",
+                            "lat": 17.452233,
+                            "lng": 78.388076,
+                            "dist_fraction": 0.692308,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:12 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Patrika Nagar",
+                            "lat": 17.450688,
+                            "lng": 78.382021,
+                            "dist_fraction": 0.923077,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:13 PM",
+                            "estimated_date": "05/05/2026"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "step": 1,
+            "virtual_time": 17,
+            "mode": "city_move",
+            "speed_kmh": 20,
+            "progress_m": 186.5,
+            "simulated": [
+                17.440322,
+                78.398033
+            ],
+            "dist_prev_m": 49,
+            "accepted": true,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.8km",
+            "responses": {
+                "710": {
+                    "status": true,
+                    "message": "Driver location updated successfully.",
+                    "data": {
+                        "booking_id": 710,
+                        "driver_lat": 17.440322,
+                        "driver_lng": 78.398033,
+                        "driver_location_name": "Hyderabad, TS",
+                        "updated_at": "2026-05-05 18:08:53"
+                    },
+                    "_http_code": 200
+                }
+            },
+            "timeline": null
+        },
+        {
+            "step": 2,
+            "virtual_time": 25,
+            "mode": "highway",
+            "speed_kmh": 54,
+            "progress_m": 306.5,
+            "simulated": [
+                17.441226,
+                78.39738
+            ],
+            "dist_prev_m": 122.1,
+            "accepted": true,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.7km",
+            "responses": {
+                "710": {
+                    "status": true,
+                    "message": "Driver location updated successfully.",
+                    "data": {
+                        "booking_id": 710,
+                        "driver_lat": 17.441226,
+                        "driver_lng": 78.39738,
+                        "driver_location_name": "Hyderabad, TS",
+                        "updated_at": "2026-05-05 18:09:03"
+                    },
+                    "_http_code": 200
+                }
+            },
+            "timeline": {
+                "710": {
+                    "driver_at": "\u2014",
+                    "passed": 1,
+                    "total": 4,
+                    "stops": [
+                        {
+                            "name": "Guttala_Begumpet",
+                            "lat": 17.441137,
+                            "lng": 78.397451,
+                            "dist_fraction": 0.076923,
+                            "is_key_stop": false,
+                            "passed_at": "2026-05-05T18:03:05+05:30",
+                            "estimated_arrival": "6:03 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Mega Hills",
+                            "lat": 17.45171,
+                            "lng": 78.393616,
+                            "dist_fraction": 0.538462,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:11 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Jaihind Enclave",
+                            "lat": 17.452233,
+                            "lng": 78.388076,
+                            "dist_fraction": 0.692308,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:12 PM",
+                            "estimated_date": "05/05/2026"
+                        },
+                        {
+                            "name": "Patrika Nagar",
+                            "lat": 17.450688,
+                            "lng": 78.382021,
+                            "dist_fraction": 0.923077,
+                            "is_key_stop": false,
+                            "estimated_arrival": "6:13 PM",
+                            "estimated_date": "05/05/2026"
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "validation": {
+        "timeline_count": 2,
+        "max_jump_m": 274.2,
+        "checks": {
+            "no_large_jumps": false,
+            "final_point_near_drop": false
+        },
+        "overall_pass": false
+    },
+    "finished_at": "2026-05-05T12:39:13+00:00"
+}

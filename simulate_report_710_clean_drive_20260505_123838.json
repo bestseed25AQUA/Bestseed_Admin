@@ -1,0 +1,90 @@
+{
+    "booking_ids": [
+        710
+    ],
+    "scenario": "clean_drive",
+    "drops": [
+        {
+            "lat": 17.4485698,
+            "lng": 78.3837034,
+            "booking_id": 710,
+            "name": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India"
+        }
+    ],
+    "route_km": 3.84,
+    "steps": [
+        {
+            "step": 0,
+            "virtual_time": 12,
+            "mode": "city_slow",
+            "speed_kmh": 15,
+            "progress_m": 108.7,
+            "simulated": [
+                17.439745,
+                78.39846
+            ],
+            "dist_prev_m": 0,
+            "accepted": false,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.8km",
+            "responses": {
+                "710": {
+                    "message": "Unauthenticated.",
+                    "_http_code": 401
+                }
+            },
+            "timeline": null
+        },
+        {
+            "step": 1,
+            "virtual_time": 21,
+            "mode": "city_slow",
+            "speed_kmh": 8,
+            "progress_m": 128.7,
+            "simulated": [
+                17.439989,
+                78.398356
+            ],
+            "dist_prev_m": 0,
+            "accepted": false,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.8km",
+            "responses": {
+                "710": {
+                    "message": "Unauthenticated.",
+                    "_http_code": 401
+                }
+            },
+            "timeline": null
+        },
+        {
+            "step": 2,
+            "virtual_time": 30,
+            "mode": "highway",
+            "speed_kmh": 40,
+            "progress_m": 228.7,
+            "simulated": [
+                17.440669,
+                78.397834
+            ],
+            "dist_prev_m": 0,
+            "accepted": false,
+            "drop_approaching": "Metro Station Hitech City, Silicon Valley, HITEC City, Hyderabad, Telangana 500081, India [#710] 1.7km",
+            "responses": {
+                "710": {
+                    "message": "Unauthenticated.",
+                    "_http_code": 401
+                }
+            },
+            "timeline": null
+        }
+    ],
+    "validation": {
+        "timeline_count": 1,
+        "max_jump_m": 0,
+        "checks": {
+            "no_large_jumps": true,
+            "final_point_near_drop": false
+        },
+        "overall_pass": false
+    },
+    "finished_at": "2026-05-05T12:38:38+00:00"
+}

@@ -1,0 +1,74 @@
+{
+  "version": "1.0.6",
+  "build": 8,
+  "date": "2026-06-25",
+  "changelog": [
+    {
+      "version": "1.0.6",
+      "build": 8,
+      "date": "2026-06-25",
+      "changes": [
+        "feat(admin): display hatchery logo preview dynamically on updates create and edit forms"
+      ]
+    },
+    {
+      "version": "1.0.5",
+      "build": 7,
+      "date": "2026-06-25",
+      "changes": [
+        "feat(admin): completely separate post thumbnail from hatchery logo on public update page"
+      ]
+    },
+    {
+      "version": "1.0.4",
+      "build": 6,
+      "date": "2026-06-25",
+      "changes": [
+        "feat(admin): separate hatchery update thumbnail and logo labels/descriptions"
+      ]
+    },
+    {
+      "version": "1.0.3",
+      "build": 5,
+      "date": "2026-06-25",
+      "changes": [
+        "Fix: Hatchery Active/Inactive toggles made category-specific"
+      ]
+    },
+    {
+      "version": "1.0.2",
+      "build": 4,
+      "date": "2026-05-30",
+      "changes": [
+        "Fix: filepond image validation on edit (skip validation when no new file)",
+        "Deploy version endpoint now reads from version.json"
+      ]
+    },
+    {
+      "version": "1.0.1",
+      "build": 3,
+      "date": "2026-05-30",
+      "changes": [
+        "Fix: image validation error when uploading only thumbnail"
+      ]
+    },
+    {
+      "version": "1.0.1",
+      "build": 2,
+      "date": "2026-05-30",
+      "changes": [
+        "Add thumbnail support for Vehicle Availability banner",
+        "Admin can upload thumbnail image alongside video for home_banner",
+        "API returns thumbnail URL in /farmer/home_banner response"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "build": 1,
+      "date": "2026-05-30",
+      "changes": [
+        "Initial versioning added"
+      ]
+    }
+  ]
+}

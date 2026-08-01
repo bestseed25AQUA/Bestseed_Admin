@@ -1,0 +1,1752 @@
+{
+	"info": {
+		"name": "BestSeeds - End User (Farmer) App",
+		"description": "API collection for the BestSeeds Farmer/End-User mobile application.\n\nAuthentication: OTP-based login via mobile number → Sanctum Bearer Token.\n\nBase URL: {{base_url}}/api/farmer",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://aqua.bestseed.in",
+			"type": "string"
+		},
+		{
+			"key": "farmer_token",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{farmer_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login (Send OTP)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.otp_debug) {",
+									"        pm.collectionVariables.set('otp_code', json.otp_debug);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "login"]
+						},
+						"description": "Send OTP to farmer's mobile number for login. Alias for send-otp."
+					}
+				},
+				{
+					"name": "Send OTP",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/send-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "send-otp"]
+						},
+						"description": "Send OTP to mobile number. Validation: mobile - required|digits:10"
+					}
+				},
+				{
+					"name": "Verify OTP",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.token) {",
+									"        pm.collectionVariables.set('farmer_token', json.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\",\n    \"otp_code\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/verify-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "verify-otp"]
+						},
+						"description": "Verify OTP and get Sanctum bearer token. Token is auto-saved to collection variable."
+					}
+				},
+				{
+					"name": "Resend OTP",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mobile\": \"9876543210\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/resend-otp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "resend-otp"]
+						},
+						"description": "Resend OTP. Rate limited - returns 429 if too frequent."
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "logout"]
+						},
+						"description": "Logout and revoke current Sanctum token."
+					}
+				}
+			]
+		},
+		{
+			"name": "Profile",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "first_name", "value": "John", "type": "text" },
+								{ "key": "last_name", "value": "Doe", "type": "text" },
+								{ "key": "language", "value": "en", "description": "en,te,hi,ta,kn,ml,mr,gu,pa,bn,or,ur", "type": "text" },
+								{ "key": "profile_image", "type": "file", "src": "", "description": "jpeg,png,jpg,gif|max:2048KB" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/update-profile",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "update-profile"]
+						}
+					}
+				},
+				{
+					"name": "Register FCM Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fcm_token\": \"your_fcm_token_here\",\n    \"device_type\": \"android\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/register-fcm-token",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "register-fcm-token"]
+						},
+						"description": "Register FCM token for push notifications. device_type: android|ios"
+					}
+				}
+			]
+		},
+		{
+			"name": "Language",
+			"item": [
+				{
+					"name": "Get Language",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/language",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "language"]
+						}
+					}
+				},
+				{
+					"name": "Update Language",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"language\": \"te\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/language",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "language"]
+						},
+						"description": "Supported: en,te,hi,ta,kn,ml,mr,gu,pa,bn,or,ur"
+					}
+				}
+			]
+		},
+		{
+			"name": "Home & Dashboard",
+			"item": [
+				{
+					"name": "Home Screen",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/home?lat=17.385&lng=78.4867&radius=50&page=1&per_page=12",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "home"],
+							"query": [
+								{ "key": "lat", "value": "17.385", "description": "Latitude for geo-distance" },
+								{ "key": "lng", "value": "78.4867", "description": "Longitude for geo-distance" },
+								{ "key": "city", "value": "", "disabled": true },
+								{ "key": "radius", "value": "50", "description": "Search radius in km" },
+								{ "key": "search", "value": "", "disabled": true },
+								{ "key": "brands", "value": "", "description": "Comma-separated brand IDs", "disabled": true },
+								{ "key": "categories", "value": "", "description": "Comma-separated category IDs", "disabled": true },
+								{ "key": "species", "value": "vannamei", "disabled": true },
+								{ "key": "page", "value": "1" },
+								{ "key": "per_page", "value": "12" }
+							]
+						},
+						"description": "Main home screen data: banners, hatcheries, prices, updates, quick actions."
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatcheries",
+			"item": [
+				{
+					"name": "Home Hatcheries (Featured 6)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/home-hatcheries?category_id=&location_id=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "home-hatcheries"],
+							"query": [
+								{ "key": "category_id", "value": "", "description": "Comma-separated category IDs", "disabled": true },
+								{ "key": "location_id", "value": "", "description": "Comma-separated location IDs", "disabled": true }
+							]
+						}
+					}
+				},
+				{
+					"name": "All Hatcheries (Paginated)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatcheries",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatcheries"]
+						},
+						"description": "Full hatchery listing with filters and pagination."
+					}
+				},
+				{
+					"name": "Hatchery Filters",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery-filters",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery-filters"]
+						}
+					}
+				},
+				{
+					"name": "Hatchery by Unique ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery-all-category/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery-all-category", ":id"],
+							"variable": [
+								{ "key": "id", "value": "unique_id_here", "description": "Hatchery unique_id" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Hatchery by Database ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery-by-id/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery-by-id", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1", "description": "Hatchery database ID" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Hatchery Category Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery/:hatchery_id/category/:category_id/detail",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery", ":hatchery_id", "category", ":category_id", "detail"],
+							"variable": [
+								{ "key": "hatchery_id", "value": "1" },
+								{ "key": "category_id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Hatchery Updates (Feed)",
+			"item": [
+				{
+					"name": "Home Hatchery Updates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/home-hatchery-updates?category_id=&location_id=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "home-hatchery-updates"],
+							"query": [
+								{ "key": "category_id", "value": "", "disabled": true },
+								{ "key": "location_id", "value": "", "disabled": true }
+							]
+						}
+					}
+				},
+				{
+					"name": "Hatchery Profile Updates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery-updates/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery-updates", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1", "description": "Hatchery ID" }
+							]
+						}
+					}
+				},
+				{
+					"name": "All Hatchery Updates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatchery-updates?category_id=&location_id=&hatchery_id=&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatchery-updates"],
+							"query": [
+								{ "key": "category_id", "value": "", "disabled": true },
+								{ "key": "location_id", "value": "", "disabled": true },
+								{ "key": "hatchery_id", "value": "", "disabled": true },
+								{ "key": "page", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Spot Hatcheries",
+			"item": [
+				{
+					"name": "Get Spot Hatcheries List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/spot-hatcheries",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "spot-hatcheries"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Bookings",
+			"item": [
+				{
+					"name": "Book Hatchery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customer_name\": \"Farmer Name\",\n    \"customer_mobile\": \"9876543210\",\n    \"dropping_location\": \"Delivery Location\",\n    \"hatchery_id\": 1,\n    \"hatchery_name\": \"Hatchery Name\",\n    \"category_id\": 1,\n    \"unit\": \"pieces\",\n    \"no_of_pieces\": 1000,\n    \"price\": 5000,\n    \"packing_date\": \"2026-04-01\",\n    \"drop_lat\": 17.385,\n    \"drop_lng\": 78.4867,\n    \"salinity\": 25\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/book-hatchery",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "book-hatchery"]
+						}
+					}
+				},
+				{
+					"name": "Book Spot Hatchery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customer_name\": \"Farmer Name\",\n    \"customer_mobile\": \"9876543210\",\n    \"dropping_location\": \"Delivery Location\",\n    \"hatchery_id\": 1,\n    \"hatchery_name\": \"Spot Hatchery Name\",\n    \"category_id\": 1,\n    \"unit\": \"pieces\",\n    \"no_of_pieces\": 500,\n    \"price\": 3000,\n    \"packing_date\": \"2026-04-01\",\n    \"drop_lat\": 17.385,\n    \"drop_lng\": 78.4867,\n    \"salinity\": 20\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/book-spot-hatchery",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "book-spot-hatchery"]
+						}
+					}
+				},
+				{
+					"name": "Book Vehicle Hatchery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customer_name\": \"Farmer Name\",\n    \"customer_mobile\": \"9876543210\",\n    \"dropping_location\": \"Delivery Location\",\n    \"hatchery_id\": 1,\n    \"hatchery_name\": \"Vehicle Hatchery Name\",\n    \"category_id\": 1,\n    \"unit\": \"pieces\",\n    \"no_of_pieces\": 2000,\n    \"price\": 8000,\n    \"packing_date\": \"2026-04-01\",\n    \"drop_lat\": 17.385,\n    \"drop_lng\": 78.4867,\n    \"salinity\": 25\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/book-vehicle-hatchery",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "book-vehicle-hatchery"]
+						}
+					}
+				},
+				{
+					"name": "Get Booking by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/booking/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "booking", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "My Bookings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/my-bookings?type=&search=&date=&month=&year=&page=1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "my-bookings"],
+							"query": [
+								{ "key": "type", "value": "", "description": "hatchery|spot", "disabled": true },
+								{ "key": "search", "value": "", "disabled": true },
+								{ "key": "date", "value": "", "description": "YYYY-MM-DD", "disabled": true },
+								{ "key": "month", "value": "", "description": "1-12", "disabled": true },
+								{ "key": "year", "value": "", "disabled": true },
+								{ "key": "page", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "My Booking Details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/my-bookings-details/:booking_id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "my-bookings-details", ":booking_id"],
+							"variable": [
+								{ "key": "booking_id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Cancel Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"reason_code\": 1,\n    \"other_reason\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/cancel-booking",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "cancel-booking"]
+						},
+						"description": "Reason codes: 1=Delay in processing, 2=Incorrect order details, 3=Wrong quantity, 4=Stock quality issues, 5=Other (provide other_reason)"
+					}
+				},
+				{
+					"name": "Update Booking Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"status\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/update-booking-status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "update-booking-status"]
+						},
+						"description": "Status: 1=Pending, 2=In Progress, 3=Confirmed, 4=Driver Assigned, 5=Delivered, 6=Cancelled"
+					}
+				},
+				{
+					"name": "Rate Booking",
+					"request": {
+						"method": "POST",
+						"description": "Farmer submits rating (1-5 stars) and optional message after delivery.\n\nRules:\n- Only delivered bookings (status=5) can be rated\n- One rating per booking\n- Rating: 1-5 (required)\n- Message: max 500 chars (optional)",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 484,\n    \"rating\": 5,\n    \"message\": \"Very good delivery, on time!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/rate-booking",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "rate-booking"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Farm Management",
+			"item": [
+				{
+					"name": "Create Farm",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "farm_name", "value": "My Fish Farm", "type": "text" },
+								{ "key": "stocking_date", "value": "2026-03-27", "type": "text" },
+								{ "key": "tanks", "value": "5", "type": "text" },
+								{ "key": "store", "value": "1000", "type": "text" },
+								{ "key": "low_feed_limit", "value": "100", "type": "text" },
+								{ "key": "farm_image[]", "type": "file", "src": "" },
+								{ "key": "type", "value": "form", "description": "form|call", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/create-farm?type=form",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "create-farm"],
+							"query": [
+								{ "key": "type", "value": "form" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Farm Lists",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farm-lists",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farm-lists"]
+						}
+					}
+				},
+				{
+					"name": "Update Farm",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "farm_name", "value": "Updated Farm Name", "type": "text" },
+								{ "key": "stocking_date", "value": "2026-03-27", "type": "text" },
+								{ "key": "tanks", "value": "8", "type": "text" },
+								{ "key": "store", "value": "1500", "type": "text" },
+								{ "key": "low_feed_limit", "value": "150", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farms/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farms", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Farm",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farm/delete/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farm", "delete", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Tank",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"farm_id\": 1,\n    \"tank_name\": \"Tank A\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farm/create-tank",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farm", "create-tank"]
+						}
+					}
+				},
+				{
+					"name": "Get Feed & Store",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farm/feed-store/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farm", "feed-store", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1", "description": "Farm ID" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Total Feed",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"total_feed\": 500,\n    \"store\": 800\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farm/:id/update-total-feed",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farm", ":id", "update-total-feed"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Add Today's Tank Feed",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"farm_id\": 1,\n    \"tank_id\": 1,\n    \"quantity\": 50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/tanks/add-todays-tanks-quantity",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "tanks", "add-todays-tanks-quantity"]
+						}
+					}
+				},
+				{
+					"name": "Update Tank Feed Quantity",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"farm_id\": 1,\n    \"tank_id\": 1,\n    \"quantity\": 75\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/tanks/update-tanks-quantity",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "tanks", "update-tanks-quantity"]
+						}
+					}
+				},
+				{
+					"name": "Toggle Tank Status (On/Off)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tank_id\": 1,\n    \"status\": \"on\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/tank/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "tank", "status"]
+						}
+					}
+				},
+				{
+					"name": "Farm Tanks List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/farms/:farm_id/tanks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "farms", ":farm_id", "tanks"],
+							"variable": [
+								{ "key": "farm_id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Tank Feed History",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"farm_id\": 1,\n    \"tank_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/tank-feed-history",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "tank-feed-history"]
+						}
+					}
+				},
+				{
+					"name": "Download Tank Feed Report",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"farm_id\": 1,\n    \"tank_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/download-tank-feed-report",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "download-tank-feed-report"]
+						}
+					}
+				},
+				{
+					"name": "Check Feed Limit",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/feed/check-limit/:farm_id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "feed", "check-limit", ":farm_id"],
+							"variable": [
+								{ "key": "farm_id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Market Prices",
+			"item": [
+				{
+					"name": "Get Seed Prices",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/prices",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "prices"]
+						}
+					}
+				},
+				{
+					"name": "Home Seed Prices (No Category Filter)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/home-seed-prices",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "home-seed-prices"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Metadata & Filters",
+			"item": [
+				{
+					"name": "Get Categories",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/categories",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "categories"]
+						}
+					}
+				},
+				{
+					"name": "Get Locations",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations"]
+						}
+					}
+				},
+				{
+					"name": "Get Brands",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/brands",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "brands"]
+						}
+					}
+				},
+				{
+					"name": "Combined Hatchery Filters",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/hatcheries_filters",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "hatcheries_filters"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Location Management",
+			"item": [
+				{
+					"name": "Add Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"My Location\",\n    \"subtitle\": \"City, State\",\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations_farmer",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations_farmer"]
+						}
+					}
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Updated Location\",\n    \"subtitle\": \"Updated City, State\",\n    \"latitude\": 17.400,\n    \"longitude\": 78.500\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Search Locations",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/search?q=godavari",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", "search"],
+							"query": [
+								{ "key": "q", "value": "godavari" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Default Location",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/default",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", "default"]
+						}
+					}
+				},
+				{
+					"name": "Set Default Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/set-default/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", "set-default", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Location History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/history",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", "history"]
+						}
+					}
+				},
+				{
+					"name": "Delete Location",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/locations/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "locations", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Broodstock",
+			"item": [
+				{
+					"name": "Get Broodstocks",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/broodstocks?category_id=&location_id=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "broodstocks"],
+							"query": [
+								{ "key": "category_id", "value": "", "disabled": true },
+								{ "key": "location_id", "value": "", "disabled": true }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Broodstock List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/broodstocks_list",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "broodstocks_list"]
+						}
+					}
+				},
+				{
+					"name": "Get Default Filter",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/broodstock-default-filter",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "broodstock-default-filter"]
+						}
+					}
+				},
+				{
+					"name": "Get Available Months",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/broodstock-available-months",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "broodstock-available-months"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Vehicles",
+			"item": [
+				{
+					"name": "Vehicle Availability",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle-availability",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle-availability"]
+						}
+					}
+				},
+				{
+					"name": "Vehicle List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle_list",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle_list"]
+						}
+					}
+				},
+				{
+					"name": "Vehicle Available Booking",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle_available_booking",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle_available_booking"]
+						}
+					}
+				},
+				{
+					"name": "Update Vehicle Booking Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"status\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/update_vehicle_booking_status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "update_vehicle_booking_status"]
+						}
+					}
+				},
+				{
+					"name": "Vehicle Booking Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle_booking_detail/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle_booking_detail", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Cancel Vehicle Booking",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle_booking_delete/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle_booking_delete", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Vehicle Tracking",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicle_tracking/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicle_tracking", ":id"],
+							"variable": [
+								{ "key": "id", "value": "480", "description": "Booking ID" }
+							]
+						},
+						"description": "Fetch vehicle tracking details for a specific booking.\n\nResponse includes:\n- pickup/drop locations with lat/lng\n- driver_location (current live GPS position)\n- driver_details (name, phone, vehicle)\n- timeline (max 100 sampled tracking entries with lat, lng, name, time, date — for drawing GPS trail polyline and showing location history)\n- route_waypoints (multi-stop priority-ordered stops with lat/lng)\n\nTimeline is sampled from vehicle_trackings table — if 1400 points exist, only ~100 evenly spaced points are returned to keep response lightweight."
+					}
+				},
+				{
+					"name": "Book Vehicle",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"vehicle_id\": 1,\n    \"customer_name\": \"Farmer Name\",\n    \"customer_mobile\": \"9876543210\",\n    \"dropping_location\": \"Location\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/book-vehicle",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "book-vehicle"]
+						}
+					}
+				},
+				{
+					"name": "My Vehicle Bookings",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/vehicles/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "vehicles", ":id"],
+							"variable": [
+								{ "key": "id", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Driver Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/update_driver_location",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "update_driver_location"]
+						}
+					}
+				},
+				{
+					"name": "Add Tracking Point",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": 1,\n    \"latitude\": 17.385,\n    \"longitude\": 78.4867,\n    \"address\": \"Current Location\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/add_tracking_point",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "add_tracking_point"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Banners & UI Content",
+			"item": [
+				{
+					"name": "Banner Background",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/banner_bg", "host": ["{{base_url}}"], "path": ["api", "farmer", "banner_bg"] }
+					}
+				},
+				{
+					"name": "Banner Top",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/banner_top", "host": ["{{base_url}}"], "path": ["api", "farmer", "banner_top"] }
+					}
+				},
+				{
+					"name": "Best Deals Banners",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/best_deals_banners", "host": ["{{base_url}}"], "path": ["api", "farmer", "best_deals_banners"] }
+					}
+				},
+				{
+					"name": "Home Banner",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/home_banner", "host": ["{{base_url}}"], "path": ["api", "farmer", "home_banner"] }
+					}
+				},
+				{
+					"name": "Seed Price Banner",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/seed_price_banner", "host": ["{{base_url}}"], "path": ["api", "farmer", "seed_price_banner"] }
+					}
+				},
+				{
+					"name": "Spot Hatcheries Icon",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/spot_hatcheries_icon", "host": ["{{base_url}}"], "path": ["api", "farmer", "spot_hatcheries_icon"] }
+					}
+				},
+				{
+					"name": "Farm Management Icon",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/farm_management_icon", "host": ["{{base_url}}"], "path": ["api", "farmer", "farm_management_icon"] }
+					}
+				},
+				{
+					"name": "Home Section 1 Background",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/home_section1_bg", "host": ["{{base_url}}"], "path": ["api", "farmer", "home_section1_bg"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "News & Ads",
+			"item": [
+				{
+					"name": "Home News",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/home-news?category_id=&location_id=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "home-news"],
+							"query": [
+								{ "key": "category_id", "value": "", "disabled": true },
+								{ "key": "location_id", "value": "", "disabled": true }
+							]
+						}
+					}
+				},
+				{
+					"name": "News by Type",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/news", "host": ["{{base_url}}"], "path": ["api", "farmer", "news"] }
+					}
+				},
+				{
+					"name": "Single News",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/news/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "news", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Best Deals",
+			"item": [
+				{
+					"name": "All Best Deals",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/best-deals", "host": ["{{base_url}}"], "path": ["api", "farmer", "best-deals"] }
+					}
+				},
+				{
+					"name": "Best Deal Detail",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/best-deals/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "best-deals", ":id"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Wanted Crops",
+			"item": [
+				{
+					"name": "Get Wanted Crops",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/wanted-crops", "host": ["{{base_url}}"], "path": ["api", "farmer", "wanted-crops"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Seed Requests",
+			"item": [
+				{
+					"name": "Submit Seed Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"category_id\": 1,\n    \"hatchery_id\": 1,\n    \"hatchery_name\": \"Hatchery Name\",\n    \"farmer_id\": 1,\n    \"name\": \"Farmer Name\",\n    \"mobile\": \"9876543210\",\n    \"quantity\": 1000,\n    \"dropping_location\": \"Delivery Location\",\n    \"packing_date\": \"2026-04-01\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/farmer/seed-request",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "seed-request"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Contacts",
+			"item": [
+				{
+					"name": "Get Contacts",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/farmer/contacts", "host": ["{{base_url}}"], "path": ["api", "farmer", "contacts"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Notifications",
+			"item": [
+				{
+					"name": "Get Push Notifications",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/push-notifications?per_page=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "push-notifications"],
+							"query": [
+								{ "key": "per_page", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Mark Notification as Read",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/api/farmer/push-notifications/:id/read",
+							"host": ["{{base_url}}"],
+							"path": ["api", "farmer", "push-notifications", ":id", "read"],
+							"variable": [{ "key": "id", "value": "1" }]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Managers",
+			"item": [
+				{
+					"name": "Create Manager",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Manager Name\",\n    \"mobile\": \"9876543210\",\n    \"farm_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/manager/create", "host": ["{{base_url}}"], "path": ["api", "manager", "create"] }
+					}
+				},
+				{
+					"name": "List Managers",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/manager/managers", "host": ["{{base_url}}"], "path": ["api", "manager", "managers"] }
+					}
+				},
+				{
+					"name": "Remove Manager Access",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"manager_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/manager/remove-access", "host": ["{{base_url}}"], "path": ["api", "manager", "remove-access"] }
+					}
+				},
+				{
+					"name": "Delete Manager",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"manager_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/manager/delete", "host": ["{{base_url}}"], "path": ["api", "manager", "delete"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Partners",
+			"item": [
+				{
+					"name": "Create Partner",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Partner Name\",\n    \"mobile\": \"9876543210\",\n    \"farm_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/partner/create", "host": ["{{base_url}}"], "path": ["api", "partner", "create"] }
+					}
+				},
+				{
+					"name": "List Partners",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/api/partner/parteners", "host": ["{{base_url}}"], "path": ["api", "partner", "parteners"] }
+					}
+				},
+				{
+					"name": "Remove Partner Access",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"partner_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/partner/remove-access", "host": ["{{base_url}}"], "path": ["api", "partner", "remove-access"] }
+					}
+				},
+				{
+					"name": "Delete Partner",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"partner_id\": 1\n}"
+						},
+						"url": { "raw": "{{base_url}}/api/partner/delete", "host": ["{{base_url}}"], "path": ["api", "partner", "delete"] }
+					}
+				}
+			]
+		}
+	]
+}
