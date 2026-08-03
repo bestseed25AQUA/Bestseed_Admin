@@ -109,6 +109,67 @@ class Booking extends Model
         'tracking_path_at' => 'datetime',
     ];
 
+    /**
+     * status code => the column that records WHEN the booking last entered it.
+     *
+     * 1 = Pending (no timestamp), 2 = Confirmed, 3 = Driver Assigned,
+     * 4 = In Journey, 5 = Delivered, 6 = Cancelled.
+     */
+    public const STATUS_TIMESTAMPS = [
+        2 => 'confirmed_at',
+        3 => 'driver_assigned_at',
+        4 => 'in_progress_at',
+        5 => 'delivered_at',
+        6 => 'cancelled_at',
+    ];
+
+    /**
+     * Keep the status timestamps on the LATEST transition, not the first one.
+     *
+     * These columns were previously stamped write-once — every call site guarded
+     * with `?? now()`, `if (!$booking->$column)` or `if (empty($driver_id))`. So a
+     * booking whose driver was assigned, removed, then re-assigned kept the
+     * ORIGINAL assignment time and the customer's timeline showed a stale date.
+     *
+     * Centralising it here (rather than in each controller) means every write
+     * path is covered — admin panel, vendor API and driver API all mutate
+     * bookings through Eloquent model instances, and nothing in the codebase
+     * uses a query-builder update that would bypass these events.
+     *
+     * A call site that sets the column itself still wins: the `isDirty($column)`
+     * check leaves an explicit value alone.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $booking) {
+            $column = self::STATUS_TIMESTAMPS[(int) $booking->status] ?? null;
+            if ($column && empty($booking->{$column})) {
+                $booking->{$column} = now();
+            }
+        });
+
+        static::updating(function (self $booking) {
+            // Entering a status — including RE-entering one — refreshes its stamp.
+            if ($booking->isDirty('status')) {
+                $column = self::STATUS_TIMESTAMPS[(int) $booking->status] ?? null;
+                if ($column && ! $booking->isDirty($column)) {
+                    $booking->{$column} = now();
+                }
+            }
+
+            // A driver swap can happen while the status stays 3, so the status
+            // check above would miss it. Any change of driver_id to a real
+            // driver is a fresh assignment and must re-stamp.
+            if (
+                $booking->isDirty('driver_id')
+                && ! empty($booking->driver_id)
+                && ! $booking->isDirty('driver_assigned_at')
+            ) {
+                $booking->driver_assigned_at = now();
+            }
+        });
+    }
+
     // ✅ Relationship with Vendor
     public function vendor()
     {

@@ -477,9 +477,15 @@ class BookingController extends Controller
                     $validated['driver_name'] = $driver->name;
                     $validated['driver_mobile'] = $driver->mobile;
 
-                    // Auto-update status to "Driver Assigned" (3) if driver was not previously assigned
+                    // Move to "Driver Assigned" (3) when there was no driver before.
                     if (empty($booking->driver_id)) {
                         $validated['status'] = 3;
+                    }
+
+                    // Stamp on FIRST assignment and on every re-assignment. The
+                    // old code only stamped when driver_id was previously empty,
+                    // so swapping driver A for driver B kept A's timestamp.
+                    if ((int) $booking->driver_id !== (int) $driver->id) {
                         $validated['driver_assigned_at'] = now();
                     }
                 }
@@ -642,11 +648,12 @@ class BookingController extends Controller
             6 => 'cancelled_at',
         ];
 
+        // Always record the LATEST transition, not just the first one — a
+        // booking moved back to a status it already visited must show the new
+        // time. Booking::booted() also enforces this for every other write path.
         if (isset($timestampMap[$request->status])) {
             $column = $timestampMap[$request->status];
-            if (!$booking->$column) {
-                $booking->$column = now();
-            }
+            $booking->$column = now();
         }
 
         $booking->save();
@@ -692,7 +699,10 @@ class BookingController extends Controller
             'driver_mobile' => $request->driver_mobile,
             'vehicle_started_date' => now(),
             'status' => 3, // Driver Assigned (status 3 as per correct map)
-            'driver_assigned_at' => $booking->driver_assigned_at ?? now(),
+            // Re-assigning a driver must show the NEW assignment time. This used
+            // to be `$booking->driver_assigned_at ?? now()`, which kept the very
+            // first assignment forever — the reported "shows yesterday" bug.
+            'driver_assigned_at' => now(),
         ]);
 
         // Send push notification to farmer

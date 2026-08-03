@@ -631,11 +631,11 @@ class VendorDashboardController extends Controller
                     6 => 'cancelled_at',
                 ];
 
+                // Latest transition wins — re-entering a status must refresh its
+                // time, not keep the first one.
                 if (isset($timestampMap[$newStatus])) {
                     $column = $timestampMap[$newStatus];
-                    if (!$booking->$column) {
-                        $booking->$column = now();
-                    }
+                    $booking->$column = now();
                 }
 
                 // Save cancellation reason if status is Failed
@@ -730,10 +730,19 @@ class VendorDashboardController extends Controller
             }
 
             // 3️⃣ Only status 3 allowed
+            //
+            // driver_id is cleared alongside the name/mobile so the booking is
+            // genuinely unassigned — leaving it set kept the booking linked to
+            // the removed driver and made the next assignment look like "the
+            // same driver", which suppressed the driver_assigned_at refresh.
+            // driver_assigned_at is cleared too: with no driver assigned there
+            // is no assignment time to show.
             $booking->update([
+                'driver_id' => null,
                 'driver_name' => null,
                 'driver_mobile' => null,
                 'vehicle_number' => null,
+                'driver_assigned_at' => null,
                 'status' => 2
             ]);
 
