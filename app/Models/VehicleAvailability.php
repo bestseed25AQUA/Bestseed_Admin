@@ -66,4 +66,35 @@ class VehicleAvailability extends Model
     {
         return $this->belongsTo(HatcheryLocation::class, 'location_id');
     }
+
+    /**
+     * Has the availability window closed?
+     *
+     * The end date is the LAST day the vehicle is available, so a vehicle
+     * ending 01/08 is still offered all through 01/08 and only drops off on
+     * 02/08. A missing end_date means "no fixed end" and never expires.
+     *
+     * Derived rather than stored: no scheduled job to run, and an admin who
+     * extends the end date sees it go back to Active immediately.
+     */
+    public function getIsExpiredAttribute(): bool
+    {
+        if (empty($this->end_date)) {
+            return false;
+        }
+
+        return $this->end_date->endOfDay()->isPast();
+    }
+
+    /**
+     * Only vehicles whose availability window is still open — the query-side
+     * counterpart of [getIsExpiredAttribute], used by the user-app API.
+     */
+    public function scopeNotExpired($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('end_date')
+                ->orWhereDate('end_date', '>=', now()->toDateString());
+        });
+    }
 }

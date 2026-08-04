@@ -81,6 +81,7 @@
                                 <th>Vendor</th>
                                 <th>Price</th>
                                 <th>Broodstock</th>
+                                <th>No. of Pieces</th>
                                 <th>Available On</th>
                                 <th>Image</th>
                                 <th>Status</th>
@@ -144,6 +145,15 @@
                                             {{ $item->broodstock_count }}
                                         @else
                                             0
+                                        @endif
+                                    </td>
+
+                                    {{-- No. of Pieces --}}
+                                    <td data-order="{{ $item->no_of_pieces ?? 0 }}">
+                                        @if ($item->no_of_pieces)
+                                            {{ number_format($item->no_of_pieces) }}
+                                        @else
+                                            --
                                         @endif
                                     </td>
 

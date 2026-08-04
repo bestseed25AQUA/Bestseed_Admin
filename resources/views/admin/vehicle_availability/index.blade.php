@@ -166,8 +166,17 @@
                                     </td>
 
                                     {{-- Status --}}
+                                    {{-- Expired is derived from end_date, not stored: a vehicle
+                                         whose window has closed is hidden from the user app even
+                                         though is_active is still 1. Editing the end date to a
+                                         future day flips this straight back to Active. --}}
                                     <td>
-                                        @if($item->is_active)
+                                        @if($item->is_expired)
+                                            <span class="badge bg-secondary"
+                                                title="End date {{ $item->end_date?->format('d M, Y') }} has passed — hidden from the app until the end date is extended">
+                                                Expired
+                                            </span>
+                                        @elseif($item->is_active)
                                             <span class="badge bg-success">Active</span>
                                         @else
                                             <span class="badge bg-danger">Inactive</span>

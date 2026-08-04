@@ -69,6 +69,9 @@ class VehicleAvailabilityApiController extends Controller
                 'gallery',
             ])
                 ->where('is_active', true)
+                // Drop vehicles whose availability window has closed — the end
+                // date is inclusive, so one ending today is still listed today.
+                ->notExpired()
                 ->orderBy('id', 'desc')
                 ->get()
                 ->map(function ($item) {

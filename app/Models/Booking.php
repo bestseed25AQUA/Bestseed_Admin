@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class Booking extends Model
 {
@@ -103,6 +105,7 @@ class Booking extends Model
         'delivered_at' => 'datetime',
         'rating_dismissed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'stock_applied_at' => 'datetime',
         'approaching_notified_at' => 'datetime',
         'driver_location_updated_at' => 'datetime',
         'tracking_path' => 'array',
@@ -115,6 +118,9 @@ class Booking extends Model
      * 1 = Pending (no timestamp), 2 = Confirmed, 3 = Driver Assigned,
      * 4 = In Journey, 5 = Delivered, 6 = Cancelled.
      */
+    public const STATUS_CONFIRMED = 2;
+    public const STATUS_CANCELLED = 6;
+
     public const STATUS_TIMESTAMPS = [
         2 => 'confirmed_at',
         3 => 'driver_assigned_at',
@@ -167,6 +173,97 @@ class Booking extends Model
             ) {
                 $booking->driver_assigned_at = now();
             }
+        });
+
+        // Spot-hatchery stock follows the same "centralise it in the model"
+        // reasoning as the timestamps above: bookings are confirmed from the
+        // vendor API and the admin panel, and cancelled from admin, vendor AND
+        // the customer app. Hooking the model covers every one of those paths.
+        static::created(function (self $booking) {
+            $booking->syncSpotHatcheryStock();
+        });
+
+        static::updated(function (self $booking) {
+            if ($booking->wasChanged('status')) {
+                $booking->syncSpotHatcheryStock();
+            }
+        });
+    }
+
+    /**
+     * Keep the spot hatchery's available pieces in step with this booking.
+     *
+     * Confirmed (2) → subtract this booking's pieces from the hatchery.
+     * Cancelled (6) → add them back, so the stock is available again.
+     *
+     * `stock_applied_at` records whether this booking is CURRENTLY holding
+     * stock, which makes the operation idempotent: re-saving a confirmed
+     * booking never double-subtracts, cancelling twice never double-credits,
+     * and a booking that is cancelled and later re-confirmed deducts again.
+     *
+     * Only spot hatcheries (`hatcheries.is_spot = 1`) are tracked — regular
+     * hatchery and vehicle bookings leave stock alone.
+     */
+    public function syncSpotHatcheryStock(): void
+    {
+        if (empty($this->hatchery_id)) {
+            return;
+        }
+
+        $pieces = (int) $this->no_of_pieces;
+        if ($pieces <= 0) {
+            return;
+        }
+
+        $status = (int) $this->status;
+        $holdsStock = !is_null($this->stock_applied_at);
+
+        if ($status === self::STATUS_CONFIRMED && !$holdsStock) {
+            $delta = -$pieces;
+        } elseif ($status === self::STATUS_CANCELLED && $holdsStock) {
+            $delta = $pieces;
+        } else {
+            return; // Nothing to do for this transition.
+        }
+
+        DB::transaction(function () use ($delta, $pieces) {
+            // Lock the row so two bookings confirmed at the same moment can't
+            // both read the old count and write back a stale number.
+            $hatchery = Hatchery::where('id', $this->hatchery_id)
+                ->where('is_spot', 1)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$hatchery) {
+                return; // Not a spot hatchery — stock isn't tracked here.
+            }
+
+            $current = (int) $hatchery->no_of_pieces;
+            $updated = $current + $delta;
+
+            if ($updated < 0) {
+                // The app blocks over-booking before it gets here, so this means
+                // stock was edited down after the booking was placed. Floor at
+                // zero rather than showing a negative count to customers.
+                Log::warning('Spot hatchery stock would go negative', [
+                    'booking_id' => $this->id,
+                    'hatchery_id' => $hatchery->id,
+                    'available' => $current,
+                    'requested' => $pieces,
+                ]);
+                $updated = 0;
+            }
+
+            $hatchery->forceFill(['no_of_pieces' => $updated])->saveQuietly();
+
+            // Flip the guard. Written with the query builder so this does not
+            // re-enter the model events above.
+            $appliedAt = $delta < 0 ? now() : null;
+            DB::table('bookings')->where('id', $this->id)->update([
+                'stock_applied_at' => $appliedAt,
+            ]);
+            $this->setAttribute('stock_applied_at', $appliedAt);
+            $this->syncOriginalAttribute('stock_applied_at');
         });
     }
 

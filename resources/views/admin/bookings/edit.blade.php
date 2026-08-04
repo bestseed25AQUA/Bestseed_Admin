@@ -491,6 +491,9 @@
 
             data.forEach(item => {
                 const name = item.hatchery_name || item.vehicle_name || 'Item #' + item.id;
+                // Shown as "Name — Category, Location"; data-name stays the
+                // plain name because the auto-fill writes it into hatchery_name.
+                const label = item.picker_label || name;
                 const isSelected = String(item.id) === String(selectedId) ? 'selected' : '';
                 options += `<option value="${item.id}"
                     data-name="${name}"
@@ -499,7 +502,7 @@
                     data-price="${item.price || 0}"
                     data-vendor="${item.vendor_id || ''}"
                     data-location="${item.location_id || ''}"
-                    ${isSelected}>${name}</option>`;
+                    ${isSelected}>${label}</option>`;
             });
 
             $('#source_select').html(options);

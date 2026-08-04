@@ -1092,18 +1092,46 @@ class DriverBookingController extends Controller
     // TRACKING ALERT — called by driver app when GPS/internet/tracking fails
     // =====================================================================
 
+    /**
+     * issue_type => the sentence the admin bell and the vendor push show.
+     *
+     * The driver app and this endpoint were written against DIFFERENT
+     * vocabularies. The app sends no_internet / location_off /
+     * location_not_sending / battery_low, none of which were listed here or in
+     * the validation rule below — so every one of those alerts was rejected
+     * 422 and never reached the admin bell. Only `gps_off` happened to match,
+     * which is why GPS alerts worked and "internet off / phone switched off /
+     * others" silently never appeared.
+     *
+     * Both vocabularies are accepted. Drivers already have the app installed,
+     * so widening the SERVER fixes every device immediately; the app-side keys
+     * cannot be changed retroactively.
+     */
     private static $issueDescriptions = [
+        // Keys this endpoint has always accepted.
         'gps_off' => 'Driver has turned off GPS/Location',
         'internet_off' => 'Driver internet connection is down',
         'permission_denied' => 'Driver location permissions are not properly enabled',
         'tracking_stopped' => 'Driver device has stopped sending location data',
         'tracking_restarted' => 'Tracking was interrupted but has been automatically restarted',
+
+        // Keys the driver app actually sends (TrackingAlertService).
+        'no_internet' => 'Driver internet connection is down',
+        'location_off' => 'Driver location permissions are not properly enabled',
+        'location_not_sending' => 'Driver device has stopped sending location data',
+        'battery_low' => 'Driver phone battery is critically low — tracking may stop',
     ];
+
+    /** Alerts that mean "tracking is healthy again", so the reason is cleared. */
+    private static $resolvedIssueTypes = ['tracking_restarted'];
 
     public function trackingAlert(Request $request)
     {
+        // Accept every key in the description map — see the note there about the
+        // app/server vocabulary split. Deriving the rule from the map means the
+        // two can never drift apart again.
         $request->validate([
-            'issue_type' => 'required|string|in:gps_off,internet_off,permission_denied,tracking_stopped,tracking_restarted',
+            'issue_type' => 'required|string|in:' . implode(',', array_keys(self::$issueDescriptions)),
             'battery_level' => 'nullable|integer|min:0|max:100',
         ]);
 
@@ -1123,7 +1151,7 @@ class DriverBookingController extends Controller
 
         // Map issue_type to readable reason for admin notification
         $reasonLabel = self::$issueDescriptions[$issueType] ?? 'Tracking issue';
-        $isRestarted = $issueType === 'tracking_restarted';
+        $isRestarted = in_array($issueType, self::$resolvedIssueTypes, true);
         if ($isRestarted) {
             $reasonLabel = null; // Clear reason when tracking resumes
         }

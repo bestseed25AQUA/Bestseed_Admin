@@ -100,21 +100,42 @@ class NotificationController extends Controller
         // having to type anything first.
         $query = Hatchery::excludingSpot()
             ->when($search, function ($query) use ($search) {
-                $query->where('hatchery_name', 'like', "%{$search}%");
+                // Search the category and location too, because those are now
+                // part of the label — typing "Kakinada" must find the rows
+                // that visibly say Kakinada.
+                $query->where(function ($q) use ($search) {
+                    $q->where('hatchery_name', 'like', "%{$search}%")
+                        ->orWhereHas(
+                            'category',
+                            fn($c) => $c->where('category_name', 'like', "%{$search}%")
+                        )
+                        ->orWhereHas(
+                            'location',
+                            fn($l) => $l->where('location_name', 'like', "%{$search}%")
+                        );
+                });
             })
             ->orderBy('hatchery_name');
 
         $total = $query->count();
 
         $hatcheries = $query
+            // Eager loaded because picker_label reads both relations; without
+            // this the list fires two extra queries per row.
+            ->with(['category:id,category_name', 'location:id,location_name'])
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
-            ->get(['id', 'hatchery_name', 'category_id']);
+            // location_id is needed for the location relation to resolve.
+            ->get(['id', 'hatchery_name', 'category_id', 'location_id']);
 
         $results = $hatcheries->map(function ($hatchery) {
             return [
                 'id' => $hatchery->id,
-                'text' => $hatchery->hatchery_name ?? ('Hatchery #' . $hatchery->id),
+                // "Name — Category, Location". Several hatcheries share a name
+                // (one row per category/vendor combination), so the bare name
+                // made them indistinguishable — the list showed two identical
+                // "Aquaculture Hatchery" entries with no way to tell them apart.
+                'text' => $hatchery->picker_label,
                 // Drives the auto-filled category dropdown on the create form.
                 'category_id' => $hatchery->category_id,
             ];

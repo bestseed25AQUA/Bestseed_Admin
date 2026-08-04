@@ -218,10 +218,26 @@
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
-                                    <select name="is_active" class="form-control">
-                                        <option value="1" {{ old('is_active', $vehicleAvailability->is_active) ? 'selected' : '' }}>Active</option>
-                                        <option value="0" {{ !old('is_active', $vehicleAvailability->is_active) ? 'selected' : '' }}>Inactive</option>
+                                    @php
+                                        // An expired vehicle is hidden from the app whatever is_active
+                                        // says, so showing "Active" here contradicted both the listing
+                                        // (which badges it Expired) and what the farmer actually sees.
+                                        $effectiveActive = old(
+                                            'is_active',
+                                            $vehicleAvailability->is_expired ? 0 : $vehicleAvailability->is_active,
+                                        );
+                                    @endphp
+                                    <select name="is_active" id="is_active" class="form-control">
+                                        <option value="1" {{ $effectiveActive ? 'selected' : '' }}>Active</option>
+                                        <option value="0" {{ !$effectiveActive ? 'selected' : '' }}>Inactive</option>
                                     </select>
+                                    @if ($vehicleAvailability->is_expired)
+                                        <small class="text-muted d-block mt-1" id="expired_hint">
+                                            Inactive because the end date
+                                            ({{ $vehicleAvailability->end_date?->format('d M, Y') }}) has passed.
+                                            Set a future end date to make it active again.
+                                        </small>
+                                    @endif
                                 </div>
                             </div>
 
@@ -432,6 +448,23 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         $(document).ready(function() {
+            // Expired vehicles show Status = Inactive. If the admin extends the
+            // end date into the future, flip it back to Active automatically —
+            // otherwise saving would persist the "expired" Inactive and the
+            // vehicle would stay hidden despite its new, valid date.
+            $('#end_date').on('change', function() {
+                var value = $(this).val();
+                if (!value) return;
+
+                var end = new Date(value + 'T23:59:59');
+                var stillExpired = end < new Date();
+
+                if (!stillExpired && $('#is_active').val() === '0') {
+                    $('#is_active').val('1').trigger('change');
+                    $('#expired_hint').remove();
+                }
+            });
+
             // Initialize Select2 for regular dropdowns
             $('.select2').select2({
                 placeholder: function() {

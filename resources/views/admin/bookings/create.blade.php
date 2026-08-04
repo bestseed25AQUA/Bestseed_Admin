@@ -459,6 +459,11 @@
 
                 data.forEach(item => {
                     const name = item.hatchery_name || item.vehicle_name || 'Item #' + item.id;
+                    // Shown to the user as "Name — Category, Location" so rows
+                    // sharing a name can be told apart. data-name stays the
+                    // plain name because the auto-fill below writes it into the
+                    // hatchery_name field.
+                    const label = item.picker_label || name;
                     options += `<option value="${item.id}"
                         data-name="${name}"
                         data-category="${item.category_id || ''}"
@@ -466,7 +471,7 @@
                         data-price="${item.price || 0}"
                         data-vendor="${item.vendor_id || ''}"
                         data-location="${item.location_id || ''}"
-                        data-available-space="${item.available_space || 0}">${name}</option>`;
+                        data-available-space="${item.available_space || 0}">${label}</option>`;
                 });
 
                 $('#source_select').html(options).trigger('change');

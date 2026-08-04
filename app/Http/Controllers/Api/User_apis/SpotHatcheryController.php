@@ -86,6 +86,15 @@ class SpotHatcheryController extends Controller
 
                         'location_id' => $item->location_id,
                         'location_name' => $item->location->location_name ?? null,
+                        // Coordinates of the hatchery's location, required by
+                        // the app's "Nearby / Farthest" sort. Same shape as the
+                        // vehicle availability API.
+                        'latitude' => $item->location?->latitude !== null
+                            ? (float) $item->location->latitude
+                            : null,
+                        'longitude' => $item->location?->longitude !== null
+                            ? (float) $item->location->longitude
+                            : null,
                         // Get branch from pivot table (branch_hatchery), not from hatchery.branch_id
                         'branch_name' => (function () use ($item) {
                             $pivotBranch = \App\Models\BranchHatchery::where('hatchery_id', $item->id)

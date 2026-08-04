@@ -47,8 +47,11 @@ class SpotHatcheryController extends Controller
         $brands = Brand::orderBy('id')->get();
         $branches = HatcheryLocationBranch::orderBy('id', 'desc')->get();
 
-        // Get all non-spot hatcheries for the dropdown
+        // Get all non-spot hatcheries for the dropdown. Category + location are
+        // eager loaded because the option text uses `picker_label`, which reads
+        // both — without this the picker fires two queries per hatchery.
         $hatcheries = Hatchery::excludingSpot()
+            ->with(['category:id,category_name', 'location:id,location_name'])
             ->orderBy('hatchery_name')
             ->get(['id', 'hatchery_name', 'category_id', 'brand_id', 'vendor_id', 'location_id', 'available_on', 'price', 'broodstock_count', 'description']);
 
@@ -190,8 +193,11 @@ class SpotHatcheryController extends Controller
         $brands = Brand::orderBy('id')->get();
         $branches = HatcheryLocationBranch::orderBy('id', 'desc')->get();
 
-        // Get all non-spot hatcheries for the dropdown
+        // Get all non-spot hatcheries for the dropdown. Category + location are
+        // eager loaded because the option text uses `picker_label`, which reads
+        // both — without this the picker fires two queries per hatchery.
         $hatcheries = Hatchery::excludingSpot()
+            ->with(['category:id,category_name', 'location:id,location_name'])
             ->orderBy('hatchery_name')
             ->get(['id', 'hatchery_name', 'category_id', 'brand_id', 'vendor_id', 'location_id', 'available_on', 'price', 'broodstock_count', 'description']);
 

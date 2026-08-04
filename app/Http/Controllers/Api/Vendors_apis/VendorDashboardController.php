@@ -236,13 +236,33 @@ class VendorDashboardController extends Controller
 
         $bookings = $query->paginate(10);
 
-        // Get counts for all tabs (without filters, just for this vendor)
-        $allBookingsQuery = Booking::where('vendor_id', $vendorId);
+        // Counts for every tab (unfiltered, just this vendor). One grouped
+        // query instead of a COUNT per tab — the app shows a badge on each
+        // status tab (In Journey / Confirmed / Driver Assigned / Delivered /
+        // Failed), which would otherwise be five more round trips.
+        $perStatus = Booking::where('vendor_id', $vendorId)
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $sumOf = fn(array $statuses) => collect($statuses)
+            ->sum(fn($s) => (int) ($perStatus[$s] ?? 0));
+
         $counts = [
-            'all' => (clone $allBookingsQuery)->count(),
-            'new' => (clone $allBookingsQuery)->where('status', 1)->count(),
-            'current' => (clone $allBookingsQuery)->whereIn('status', [2, 3, 4])->count(),
-            'past' => (clone $allBookingsQuery)->whereIn('status', [5, 6])->count(),
+            'all' => (int) $perStatus->sum(),
+            'new' => $sumOf([1]),
+            'current' => $sumOf([2, 3, 4]),
+            'past' => $sumOf([5, 6]),
+            // Keyed by the same status values the app filters on, so a tab can
+            // look its badge up directly by status instead of by name.
+            'by_status' => [
+                1 => $sumOf([1]),
+                2 => $sumOf([2]),
+                3 => $sumOf([3]),
+                4 => $sumOf([4]),
+                5 => $sumOf([5]),
+                6 => $sumOf([6]),
+            ],
         ];
 
         return response()->json([

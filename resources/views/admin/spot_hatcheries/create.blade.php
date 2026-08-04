@@ -42,7 +42,7 @@
                                         @foreach ($hatcheries as $hatchery)
                                             <option value="{{ $hatchery->id }}"
                                                 {{ old('selected_hatchery_id') == $hatchery->id ? 'selected' : '' }}>
-                                                {{ $hatchery->hatchery_name }}
+                                                {{ $hatchery->picker_label }}
                                             </option>
                                         @endforeach
                                     </select>

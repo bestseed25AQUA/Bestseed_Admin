@@ -147,23 +147,45 @@ class BookingController extends Controller
         $customers = Farmer::orderBy('first_name')->get();
         $drivers = Driver::orderBy('name')->get();
 
-        // Get hatcheries (is_spot = 0 or null)
+        // Get hatcheries (is_spot = 0 or null).
+        // Category + location are eager loaded and picker_label appended so the
+        // Select Source dropdown can show "Name — Category, Location". Several
+        // hatcheries share a name (one row per category/vendor combination),
+        // so the bare name made them indistinguishable in the list.
         $hatcheries = Hatchery::where(function ($q) {
             $q->whereNull('is_spot')->orWhere('is_spot', 0);
-        })->orderByDesc('created_at')->get();
+        })
+            ->with(['category:id,category_name', 'location:id,location_name'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->append('picker_label');
 
         // Get spot hatcheries (is_spot = 1)
-        $spotHatcheries = Hatchery::where('is_spot', 1)->orderByDesc('created_at')->get();
+        $spotHatcheries = Hatchery::where('is_spot', 1)
+            ->with(['category:id,category_name', 'location:id,location_name'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->append('picker_label');
 
         // Get vehicle availability from the vehicle_availability table
-        $vehicleAvailability = VehicleAvailability::with(['hatchery', 'category'])
+        $vehicleAvailability = VehicleAvailability::with(['hatchery', 'category', 'location'])
             ->orderByDesc('created_at')
             ->get()
             ->map(function ($item) {
+                $name = $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id);
+
+                // Same "Name — Category, Location" shape the hatchery options
+                // use, so every entry in Select Source reads consistently.
+                $parts = array_filter([
+                    $item->category->category_name ?? null,
+                    $item->location->location_name ?? null,
+                ]);
+
                 return [
                     'id' => $item->id,
-                    'vehicle_name' => $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id),
-                    'hatchery_name' => $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id),
+                    'vehicle_name' => $name,
+                    'hatchery_name' => $name,
+                    'picker_label' => $parts ? $name . ' — ' . implode(', ', $parts) : $name,
                     'category_id' => $item->category_id,
                     'price' => $item->hatchery->price ?? 0,
                     'vendor_id' => $item->vendor_id,
@@ -362,23 +384,45 @@ class BookingController extends Controller
         $customers = Farmer::orderBy('first_name')->get();
         $drivers = Driver::orderBy('name')->get();
 
-        // Get hatcheries (is_spot = 0 or null)
+        // Get hatcheries (is_spot = 0 or null).
+        // Category + location are eager loaded and picker_label appended so the
+        // Select Source dropdown can show "Name — Category, Location". Several
+        // hatcheries share a name (one row per category/vendor combination),
+        // so the bare name made them indistinguishable in the list.
         $hatcheries = Hatchery::where(function ($q) {
             $q->whereNull('is_spot')->orWhere('is_spot', 0);
-        })->orderByDesc('created_at')->get();
+        })
+            ->with(['category:id,category_name', 'location:id,location_name'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->append('picker_label');
 
         // Get spot hatcheries (is_spot = 1)
-        $spotHatcheries = Hatchery::where('is_spot', 1)->orderByDesc('created_at')->get();
+        $spotHatcheries = Hatchery::where('is_spot', 1)
+            ->with(['category:id,category_name', 'location:id,location_name'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->append('picker_label');
 
         // Get vehicle availability
-        $vehicleAvailability = VehicleAvailability::with(['hatchery', 'category'])
+        $vehicleAvailability = VehicleAvailability::with(['hatchery', 'category', 'location'])
             ->orderByDesc('created_at')
             ->get()
             ->map(function ($item) {
+                $name = $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id);
+
+                // Same "Name — Category, Location" shape the hatchery options
+                // use, so every entry in Select Source reads consistently.
+                $parts = array_filter([
+                    $item->category->category_name ?? null,
+                    $item->location->location_name ?? null,
+                ]);
+
                 return [
                     'id' => $item->id,
-                    'vehicle_name' => $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id),
-                    'hatchery_name' => $item->vehicle_name ?? ($item->hatchery->hatchery_name ?? 'Vehicle #' . $item->id),
+                    'vehicle_name' => $name,
+                    'hatchery_name' => $name,
+                    'picker_label' => $parts ? $name . ' — ' . implode(', ', $parts) : $name,
                     'category_id' => $item->category_id,
                     'price' => $item->hatchery->price ?? 0,
                     'vendor_id' => $item->vendor_id,
