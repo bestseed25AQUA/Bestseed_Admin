@@ -245,18 +245,16 @@ class BookingController extends Controller
                 if ($vendor && !empty($vendor->fcm_token)) {
                     $hatcheryLabel = $booking->hatchery_name
                         ?: (\App\Models\Hatchery::find($booking->hatchery_id)?->hatchery_name ?? '');
-                    $bookedByLabel = $booking->customer_name
-                        ?: ($booking->customer_mobile ?? '');
                     // Multi-line body. FCM shows the first line collapsed and
                     // the rest on expand; on the Best-Seeds vendor app the
-                    // BigTextStyle used for this channel renders all three
-                    // lines together.
+                    // BigTextStyle used for this channel renders both lines
+                    // together. The customer's name/number is deliberately not
+                    // included here — only the booking id and hatchery name.
                     $bodyLines = [
-                        'booking id : ' . $booking->booking_uid,
+                        // Same short id the admin panel lists (#1014), not the
+                        // long booking_uid reference.
+                        'booking id : #' . $booking->id,
                     ];
-                    if ($bookedByLabel !== '') {
-                        $bodyLines[] = 'booked by : ' . $bookedByLabel;
-                    }
                     if ($hatcheryLabel !== '') {
                         $bodyLines[] = 'hatchery name : ' . $hatcheryLabel;
                     }
@@ -544,10 +542,14 @@ class BookingController extends Controller
                 'hatchery_id' => $booking->hatchery_id,
                 'hatchery_name' => $booking->hatchery_name,
 
+                // Fall back instead of indexing blindly. Laravel turns PHP
+                // warnings into ErrorException, so a status outside 1-6 (or a
+                // null one) made this whole endpoint return 500 rather than
+                // just showing an odd label.
                 'status' => [
                     'value' => $booking->status,
-                    'label' => $statusMap[$booking->status][0],
-                    'message' => $statusMap[$booking->status][1],
+                    'label' => $statusMap[$booking->status][0] ?? 'Updated',
+                    'message' => $statusMap[$booking->status][1] ?? '',
                 ],
 
                 'category_id' => $booking->category_id,
@@ -635,9 +637,14 @@ class BookingController extends Controller
                 $response['booking_status_timeline'] = [
                     [
                         'label' => 'Booking Confirmed',
+                        // created_at is only formatted when it exists — calling
+                        // ->format() on a null timestamp is a fatal Error, not
+                        // a catchable Exception, so it 500s the endpoint.
                         'time' => $booking->confirmed_at
                             ? $booking->confirmed_at->format('d-M-Y h:i A')
-                            : ($booking->status >= 2 ? $booking->created_at->format('d-M-Y h:i A') : ''),
+                            : (($booking->status >= 2 && $booking->created_at)
+                                ? $booking->created_at->format('d-M-Y h:i A')
+                                : ''),
                         'completed' => $booking->status >= 2
                     ],
                     [
@@ -670,7 +677,19 @@ class BookingController extends Controller
                 'booking' => $response,
             ], 200);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            // \Throwable, not Exception: a TypeError or "call to a member
+            // function on null" is an \Error and slipped past the old catch
+            // entirely, so the app got a bare 500 with nothing to act on.
+            // Logging it means the cause is recoverable from the server log
+            // even though the response deliberately stays generic.
+            Log::error('mybookingDetails failed', [
+                'booking_id' => $bookingId,
+                'farmer_id' => auth()->id(),
+                'error' => $e->getMessage(),
+                'at' => $e->getFile() . ':' . $e->getLine(),
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Failed to fetch booking details',

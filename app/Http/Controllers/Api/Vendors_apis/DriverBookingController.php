@@ -1064,12 +1064,19 @@ class DriverBookingController extends Controller
                 'body' => $body,
                 'type' => 'driver_approaching',
                 'farmer_id' => $farmer->id,
-                'data' => json_encode([
+                // NOT json_encode()'d: PushNotification casts `data` to array,
+                // so Eloquent encodes it on write. Encoding first stored a
+                // double-encoded JSON *string*, and the app then read `data`
+                // as a string instead of an object — so tapping one of these
+                // in the in-app notification list could not find booking_id.
+                // Every other sender passes the array directly; this was the
+                // odd one out.
+                'data' => [
                     'type' => 'driver_approaching',
                     'booking_id' => (string) $booking->id,
                     'booking_uid' => $bookingRef,
                     'distance_km' => round($distance, 1),
-                ]),
+                ],
             ]);
 
             // Send FCM push notification

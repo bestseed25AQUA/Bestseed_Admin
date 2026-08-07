@@ -1512,11 +1512,17 @@ class VehicleController extends Controller
             $tripCutoffForBreadcrumbs = $booking->in_progress_at
                 ? Carbon::parse($booking->in_progress_at)->subMinutes(10)
                 : Carbon::now()->subHours(12);
-            $allBreadcrumbs = \App\Models\VehicleTracking::where('booking_id', $booking->id)
+            // reached_at is kept (not just lat/lng) because the visited-stop
+            // detection below reads the gaps BETWEEN crumbs, not just their
+            // positions. One query serves both.
+            $allTrackingPoints = \App\Models\VehicleTracking::where('booking_id', $booking->id)
                 ->whereNotNull('lat')->whereNotNull('lng')
                 ->where('reached_at', '>=', $tripCutoffForBreadcrumbs)
                 ->orderBy('reached_at', 'asc')
-                ->get(['lat', 'lng'])
+                ->get(['lat', 'lng', 'reached_at'])
+                ->values();
+
+            $allBreadcrumbs = $allTrackingPoints
                 ->map(fn($t) => [round((float) $t->lat, 6), round((float) $t->lng, 6)])
                 ->values()
                 ->all();
@@ -1532,6 +1538,97 @@ class VehicleController extends Controller
                     if ($i % $skipRate === 0 || $i === $total - 1) {
                         $driverBreadcrumbs[] = $allBreadcrumbs[$i];
                     }
+                }
+            }
+
+            // ── Mark earlier drops the truck has ALREADY physically visited ──
+            //
+            // A driver can deliver an earlier-priority drop and forget to press
+            // "Delivered", leaving that booking at status 4 — so a later
+            // customer's map keeps routing BACK to it.
+            //
+            // The visit is detected from THIS booking's own GPS breadcrumbs.
+            // Crumbs are only written while the truck is moving (>= 25 m since
+            // the last one, see DriverBookingController), so a truck standing
+            // still to unload writes nothing — the halt appears as a TIME GAP
+            // between consecutive crumbs. That gap is what separates "stopped
+            // here and delivered" from "drove past on the highway", which no
+            // distance test alone can do.
+            //
+            // Deliberately additive: this sets a flag and never removes a
+            // waypoint. The full route must keep every stop, because the green
+            // covered line is sliced from it and the arrival time is computed
+            // as a fraction of the whole route. Older app builds ignore the
+            // extra key, so the backend can ship independently.
+            if (!empty($routeWaypoints) && $allTrackingPoints->count() >= 2) {
+                $stopRadiusKm = 0.6;    // must actually reach the drop
+                $departedKm   = 1.5;    // and must have left again
+                $dwellSecs    = 8 * 60; // an unload, not a traffic light
+                $pointCount   = $allTrackingPoints->count();
+
+                foreach ($routeWaypoints as $idx => $wp) {
+                    $routeWaypoints[$idx]['is_passed'] = false;
+
+                    $wLat = (float) $wp['lat'];
+                    $wLng = (float) $wp['lng'];
+                    if (!$wLat || !$wLng) {
+                        continue;
+                    }
+
+                    // Never flag this booking's own destination.
+                    if (
+                        ($drop['lat'] ?? 0) && ($drop['lng'] ?? 0)
+                        && self::haversineDistance($wLat, $wLng, (float) $drop['lat'], (float) $drop['lng']) < 0.2
+                    ) {
+                        continue;
+                    }
+
+                    $firstNear = null;
+                    $lastNear = null;
+                    for ($i = 0; $i < $pointCount; $i++) {
+                        $t = $allTrackingPoints[$i];
+                        if (self::haversineDistance((float) $t->lat, (float) $t->lng, $wLat, $wLng) <= $stopRadiusKm) {
+                            if ($firstNear === null) {
+                                $firstNear = $i;
+                            }
+                            $lastNear = $i;
+                        }
+                    }
+                    // Never got there — keep routing through it.
+                    if ($firstNear === null) {
+                        continue;
+                    }
+
+                    // Must have left again, so a truck still approaching (or
+                    // still parked at the drop) is not treated as done.
+                    $departed = false;
+                    for ($i = $lastNear + 1; $i < $pointCount; $i++) {
+                        $t = $allTrackingPoints[$i];
+                        if (self::haversineDistance((float) $t->lat, (float) $t->lng, $wLat, $wLng) >= $departedKm) {
+                            $departed = true;
+                            break;
+                        }
+                    }
+                    if (!$departed) {
+                        continue;
+                    }
+
+                    // Must have STOPPED there — the largest gap between crumbs
+                    // while near the drop.
+                    $maxGap = 0;
+                    for ($i = $firstNear; $i <= $lastNear && $i + 1 < $pointCount; $i++) {
+                        $gap = Carbon::parse($allTrackingPoints[$i]->reached_at)
+                            ->diffInSeconds(Carbon::parse($allTrackingPoints[$i + 1]->reached_at));
+                        if ($gap > $maxGap) {
+                            $maxGap = $gap;
+                        }
+                    }
+                    // Just drove past.
+                    if ($maxGap < $dwellSecs) {
+                        continue;
+                    }
+
+                    $routeWaypoints[$idx]['is_passed'] = true;
                 }
             }
 

@@ -1,0 +1,5 @@
+[14:51:19]   │  🔜 FUTURE   [0.959] Mega Hills  →  6:23 PM 19/05/2026
+[14:51:19]   │  🔜 FUTURE   [0.976] Sri Sai Nagar  →  6:24 PM 19/05/2026
+[14:51:19]   └── 1/4 stops passed ──
+[14:51:21] [051] ✓ [Hyderabad, TS]        mode=city_slow  speed=15km/h dist=  16m  → Ayappa Society, Madhapur, Hyderabad, Telangana, 500081, India [#776] 0.4km
+[14:51:23] [052] ✓ [Hyderabad, TS]        mode=city_slow  speed=20km/h dist=  20m  → Ayappa Society, Madhapur, Hyderabad, Telangana, 500081, India [#776] 0.4km
