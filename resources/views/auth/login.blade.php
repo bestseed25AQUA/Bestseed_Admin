@@ -221,11 +221,8 @@
                     </button>
                 </div>
 
-                @if(Route::has('register'))
-                    <div class="bottom-text">
-                        Need an account? <a href="{{ route('register') }}" class="auth-link">Register Now</a>
-                    </div>
-                @endif
+                {{-- Self-registration link removed: admin accounts are created
+                     by an existing admin, not signed up for from the login page. --}}
             </form>
         </div>
     </div>
