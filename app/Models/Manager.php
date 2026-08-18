@@ -8,6 +8,7 @@ class Manager extends Model
 {
     //
      protected $fillable = [
+        'farm_id',
         'name',
         'phone',
         'create_access',

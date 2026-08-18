@@ -19,6 +19,18 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h4 class="card-title mb-0">All Banners</h4>
+                    <div class="btn-group" role="group">
+                        <a href="{{ route('banners.index', ['tab' => 'best_deals']) }}"
+                            class="btn {{ $tab == 'best_deals' ? 'btn-primary' : 'btn-outline-primary' }}"
+                            style="min-width: 140px; padding: 8px 24px;">
+                            Bestdeal banners
+                        </a>
+                        <a href="{{ route('banners.index', ['tab' => 'home']) }}"
+                            class="btn {{ $tab == 'home' ? 'btn-primary' : 'btn-outline-primary' }}"
+                            style="min-width: 140px; padding: 8px 24px;">
+                            Home banners
+                        </a>
+                    </div>
                     @permission('banners.create')
                     <a href="{{ route('banners.create') }}" class="btn btn-primary">
                         <i class="fas fa-plus-circle mr-1"></i> Add Banner

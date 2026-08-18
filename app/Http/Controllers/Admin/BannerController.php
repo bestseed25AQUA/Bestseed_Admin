@@ -22,15 +22,24 @@ class BannerController extends Controller
 
     public function index(Request $request)
     {
+        $tab = $request->query('tab', 'best_deals');
+
         $query = Banner::with('category');
 
         if ($request->filled('screen')) {
             $query->where('screen', $request->screen);
+        } elseif ($tab === 'home') {
+            $query->where(function ($q) {
+                $q->where('screen', '!=', 'home_best_deals')->orWhereNull('screen');
+            });
+        } else {
+            $tab = 'best_deals';
+            $query->where('screen', 'home_best_deals');
         }
 
         $banners = $query->orderByDesc('id')->get();
 
-        return view('admin.banners.index', compact('banners'));
+        return view('admin.banners.index', compact('banners', 'tab'));
     }
 
     public function create()
