@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\User_apis\PriceController;
 use App\Http\Controllers\Api\User_apis\SeedWantedListingController as SeedWantedApiController;
 use App\Http\Controllers\Api\User_apis\UserAuthController;
 use App\Http\Controllers\Api\User_apis\FarmController; //farm add
+use App\Http\Controllers\Api\User_apis\FarmAccessController; //farm access qr + pin
 // use App\Http\Controllers\Api\BookingController;
 // use App\Http\Controllers\Api\Farmer_apis\FarmerAuthController;
 
@@ -104,6 +105,20 @@ Route::prefix('partner')->group(function () {
 
 });
 //create partner end
+
+//farm access (QR + PIN) beg
+Route::prefix('farmer')->group(function () {
+    // Farmer side: issue and manage access codes for one of their farms.
+    Route::post('/farm/{farm}/access/generate', [FarmAccessController::class, 'generate']);
+    Route::get('/farm/{farm}/access', [FarmAccessController::class, 'index']);
+    Route::get('/farm/{farm}/grantees', [FarmAccessController::class, 'grantees']);
+    Route::post('/access/{grant}/revoke', [FarmAccessController::class, 'revoke']);
+
+    // Scanner side: two-step redeem (resolve QR, then confirm PIN).
+    Route::post('/access/redeem', [FarmAccessController::class, 'redeem']);
+    Route::post('/access/verify-pin', [FarmAccessController::class, 'verifyPin']);
+});
+//farm access (QR + PIN) end
 
 Route::prefix('farmer')->group(function () {
     // 👇 New Login route (alias of sendOtp)
