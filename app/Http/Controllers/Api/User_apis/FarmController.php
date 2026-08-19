@@ -16,10 +16,59 @@ use App\Models\FarmImage;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse; //added for tank feed report csv
 use Illuminate\Support\Facades\Storage; //added for tank csv api
+use App\Services\FarmAccessService;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
 
 
 class FarmController extends Controller
 {
+    public function __construct(private readonly FarmAccessService $farmAccess)
+    {
+    }
+
+    /**
+     * Farms the caller owns.
+     *
+     * Managers and partners belong to a farm, so every manager/partner endpoint
+     * is scoped through this. Only the owner manages a farm's team — a manager
+     * with edit rights must not be able to appoint further managers.
+     */
+    private function ownedFarmIds(Request $request): array
+    {
+        return Farm::where('farmer_id', $request->user()->id)->pluck('id')->all();
+    }
+
+    /** A farm_id the caller owns, or abort. */
+    private function ownedFarmId(Request $request, $farmId): int
+    {
+        if (!in_array((int) $farmId, $this->ownedFarmIds($request), true)) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'That farm is not yours.',
+            ], 403));
+        }
+
+        return (int) $farmId;
+    }
+
+    /** A manager/partner row sitting on one of the caller's farms, or abort. */
+    private function ownedTeamMember(Request $request, $memberId): Manager
+    {
+        $member = Manager::whereIn('farm_id', $this->ownedFarmIds($request))
+            ->where('id', $memberId)
+            ->first();
+
+        if (!$member) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'That person is not on any of your farms.',
+            ], 403));
+        }
+
+        return $member;
+    }
+
     //create farm
      public function createFarm(Request $request)
     {
@@ -93,7 +142,7 @@ class FarmController extends Controller
                 // Create Farm Record
                 $farm = Farm::create([
                     'farm_name' => $request->input('farm_name'),
-                    'farmer_id' => 6, //do dynamic later by sanctum token pass in authorization bearer token
+                    'farmer_id' => $request->user()->id,
                     'stocking_date' => $request->input('stocking_date'),
                     'no_of_tanks' => $request->input('tanks'),
                     'store' => $request->input('store'),
@@ -137,66 +186,48 @@ class FarmController extends Controller
     public function index(Request $request)
     {
         try {
-            // Optionally filter by logged-in user
-            // $user = $request->user();
-            // $farms = Farm::where('farmer_id', $user->id)->get();
+            $farmer = $request->user();
 
-            //dd('fgfh');
-
-            $farms = Farm::with('images')->get(); // show all farms
-            //dd($farms);
-
-            // Add active and inactive tank counts to each farm
-            $farms = $farms->map(function ($farm) {
-
-                //total feed used in a farm in all tank of particular farm
-                $sum = Feed::where('farm_id', $farm->id)->sum('feed_quantity'); //total feed used in all tanks of a specific farm
-               // $farm->active_tanks = $farm->tanks()->where('status', 'active')->count();
-                $farm->active_tanks = Tank::where('status', 1)->where('farm_id',$farm->id)->count();
-               // $farm->inactive_tanks = $farm->tanks()->where('status', 'inactive')->count();
-                $farm->inactive_tanks = Tank::where('status', 0)->where('farm_id',$farm->id)->count();
-                $farm->total_feed_used = $sum;
-                return $farm;
-            });
-        
-            $farm_images= [];
-           // if(!empty($farms) && !empty($farms->images)){
-            if(!empty($farms)){
-
-                foreach ($farms as $farm) {
-                  //  if ($farm->images && $farm->images->isNotEmpty()) {
-                    if ($farm->images) {
-                       // foreach ($farm->images as $img) {
-                        // echo $img->images;
-                       // $farm_images[] = $img->images;
-                        $farm_images[] = $farm->images->images;
-                        //}
-                    }
-                }
-
-
-            }//if outer
-        
+            // Owned farms plus any farm this farmer scanned into with a live
+            // grant that carries view access. Managers and partners log in as
+            // farmers, so this one query covers all three roles.
+            $farms = Farm::with('images')
+                ->accessibleBy($farmer->id)
+                ->get();
 
             if ($farms->isEmpty()) {
                 return response()->json([
-                    'status' => false,
+                    'status'  => false,
                     'message' => 'No farms found',
-                    'data' => []
+                    'data'    => [],
                 ], 404);
             }
 
+            // Resolve every farm's permission in one pass rather than per row.
+            $permissions = $this->farmAccess->permissionsForMany($farmer->id, $farms);
+
+            $farms = $farms->map(function ($farm) use ($permissions) {
+                $farm->active_tanks    = Tank::where('status', 1)->where('farm_id', $farm->id)->count();
+                $farm->inactive_tanks  = Tank::where('status', 0)->where('farm_id', $farm->id)->count();
+                $farm->total_feed_used = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
+
+                // Lets the app hide edit/delete buttons for a partner who only
+                // holds view access, instead of finding out via a 403.
+                $farm->access = $permissions[$farm->id]->toArray();
+
+                return $farm;
+            });
+
             return response()->json([
-                'status' => true,
+                'status'  => true,
                 'message' => 'Farm list fetched successfully',
-                'data' => $farms,
-                //'farm_images' => $farm_images,
+                'data'    => $farms,
             ], 200);
         } catch (Exception $e) {
             return response()->json([
-                'status' => false,
+                'status'  => false,
                 'message' => 'Something went wrong',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -982,7 +1013,11 @@ public function addTodaysQuantity(Request $request){
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
                 //'phone' => 'required|string|max:20|unique:managers,phone',
-                'phone' => 'required|string|max:20|unique:managers,phone,' . ($request->id ?? 'NULL') . ',id',
+                'farm_id' => 'required|integer|exists:farms,id',
+                    'phone' => ['required', 'string', 'max:20',
+                        Rule::unique('managers', 'phone')
+                            ->where('farm_id', $request->input('farm_id'))
+                            ->ignore($request->id)],
                // 'password' => 'required|integer|min:1',
                 //'read_access' => 'required|in:0,1',
                 'create_access' => 'required|in:0,1',
@@ -1001,9 +1036,9 @@ public function addTodaysQuantity(Request $request){
                     ], 422);
             }
 
-            
-            
-            
+            // Only the farm's owner may appoint its managers.
+            $farmId = $this->ownedFarmId($request, $request->input('farm_id'));
+
             // Create Manager Record
             /* $manager = Manager::create([
                         'name' => $request->name,
@@ -1018,21 +1053,20 @@ public function addTodaysQuantity(Request $request){
             
 
                 //update manager record
-                $updateManger= Manager::where('id',$request->id)
-                                       ->update(
+                $member = $this->ownedTeamMember($request, $request->id);
 
-                                            [
-                                            'name' => $request->name,
-                                            'phone' => $request->phone,
-                                           // 'read_access' => $request->read_access,
-                                            'view_access' =>$request->view_access, 
-                                            'create_access' =>$request->create_access, 
-                                            'edit_access' => $request->edit_access, 
-                                            'delete_access' => $request->delete_access, 
-                                            ]
-                                       );
+                $member->update([
+                    'farm_id'       => $farmId,
+                    'name'          => $request->name,
+                    'phone'         => $request->phone,
+                    'view_access'   => $request->view_access,
+                    'create_access' => $request->create_access,
+                    'edit_access'   => $request->edit_access,
+                    'delete_access' => $request->delete_access,
+                    'is_partner'    => 0,
+                ]);
 
-                $manager= Manager::where('id',$request->id)->first();
+                $manager = $member->fresh();
 
                 $msg= 'Manager updated successfully';
 
@@ -1042,13 +1076,14 @@ public function addTodaysQuantity(Request $request){
 
                 // Create Manager Record
              $manager = Manager::create([
-                        'name' => $request->name,
-                        'phone' => $request->phone,
-                        //'read_access' => $request->read_access,
-                        'view_access' =>$request->view_access,
-                        'create_access' =>$request->create_access,  
-                        'edit_access' => $request->edit_access, 
-                        'delete_access' => $request->delete_access, 
+                        'farm_id'       => $farmId,
+                        'name'          => $request->name,
+                        'phone'         => $request->phone,
+                        'view_access'   => $request->view_access,
+                        'create_access' => $request->create_access,
+                        'edit_access'   => $request->edit_access,
+                        'delete_access' => $request->delete_access,
+                        'is_partner'    => 0,
                     ]);
 
              //dd($manager);
@@ -1067,6 +1102,10 @@ public function addTodaysQuantity(Request $request){
                 'data' => $manager,
                 
             ], 201);
+    } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
     } catch (\Exception $e) {
         return response()->json([
             'message' => 'Manger create failed',
@@ -1082,7 +1121,12 @@ public function addTodaysQuantity(Request $request){
         try {
             
 
-            $managers = Manager::where('is_partner',0)->get(); //get managers
+            // Scoped to the caller's own farms. Optionally narrowed to one farm.
+            $managers = Manager::where('is_partner', 0)
+                ->whereIn('farm_id', $this->ownedFarmIds($request))
+                ->when($request->filled('farm_id'),
+                    fn ($q) => $q->where('farm_id', $this->ownedFarmId($request, $request->input('farm_id'))))
+                ->get();
           
         
 
@@ -1100,7 +1144,11 @@ public function addTodaysQuantity(Request $request){
                 'data' => $managers,
                 
             ], 200);
-        } catch (Exception $e) {
+        } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
+    } catch (Exception $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Something went wrong',
@@ -1121,7 +1169,11 @@ public function addTodaysQuantity(Request $request){
                 $validator = Validator::make($request->all(), [
                     'name' => 'required|string|max:255',
                     //'phone' => 'required|string|max:20|unique:managers,phone',
-                    'phone' => 'required|string|max:20|unique:managers,phone,' . ($request->id ?? 'NULL') . ',id',
+                    'farm_id' => 'required|integer|exists:farms,id',
+                    'phone' => ['required', 'string', 'max:20',
+                        Rule::unique('managers', 'phone')
+                            ->where('farm_id', $request->input('farm_id'))
+                            ->ignore($request->id)],
                    // 'password' => 'required|integer|min:1',
                     'create_access' => 'required|in:0,1',
                     'view_access' => 'required|in:0,1',
@@ -1139,9 +1191,9 @@ public function addTodaysQuantity(Request $request){
                         ], 422);
                 }
 
-                
-                
-                
+                // Only the farm's owner may appoint its partners.
+                $farmId = $this->ownedFarmId($request, $request->input('farm_id'));
+
                 // Create Manager Record
                 /* $partner = Manager::create([
                             'name' => $request->name,
@@ -1156,22 +1208,20 @@ public function addTodaysQuantity(Request $request){
               
 
                   //update manager record
-                  $updateManger= Manager::where('id',$request->id)
-                                         ->update(
+                  $member = $this->ownedTeamMember($request, $request->id);
 
-                                              [
-                                              'name' => $request->name,
-                                              'phone' => $request->phone,
-                                             // 'read_access' => $request->read_access,
-                                              'view_access' =>$request->view_access, 
-                                              'create_access' =>$request->create_access, 
-                                              'edit_access' => $request->edit_access, 
-                                              'delete_access' => $request->delete_access,
-                                              'is_partner' => 1,  
-                                              ]
-                                         );
+                  $member->update([
+                      'farm_id'       => $farmId,
+                      'name'          => $request->name,
+                      'phone'         => $request->phone,
+                      'view_access'   => $request->view_access,
+                      'create_access' => $request->create_access,
+                      'edit_access'   => $request->edit_access,
+                      'delete_access' => $request->delete_access,
+                      'is_partner'    => 1,
+                  ]);
 
-                  $partner= Manager::where('id',$request->id)->first();
+                  $partner = $member->fresh();
 
                   $msg= 'Partner updated successfully';
 
@@ -1181,14 +1231,14 @@ public function addTodaysQuantity(Request $request){
 
                   // Create Manager Record
                $partner = Manager::create([
-                          'name' => $request->name,
-                          'phone' => $request->phone,
-                          //'read_access' => $request->read_access,
-                          'view_access' =>$request->view_access,
-                          'create_access' =>$request->create_access,  
-                          'edit_access' => $request->edit_access, 
+                          'farm_id'       => $farmId,
+                          'name'          => $request->name,
+                          'phone'         => $request->phone,
+                          'view_access'   => $request->view_access,
+                          'create_access' => $request->create_access,
+                          'edit_access'   => $request->edit_access,
                           'delete_access' => $request->delete_access,
-                          'is_partner' => 1, 
+                          'is_partner'    => 1,
                       ]);
 
                //dd($manager);
@@ -1205,7 +1255,11 @@ public function addTodaysQuantity(Request $request){
                     'data' => $partner,
                     
                 ], 201);
-        } catch (\Exception $e) {
+        } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
+    } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Partner create failed',
                 'error'   => $e->getMessage()
@@ -1220,7 +1274,12 @@ public function addTodaysQuantity(Request $request){
         try {
             
 
-            $managers = Manager::where('is_partner',1)->get(); //get partners
+            // Scoped to the caller's own farms. Optionally narrowed to one farm.
+            $managers = Manager::where('is_partner', 1)
+                ->whereIn('farm_id', $this->ownedFarmIds($request))
+                ->when($request->filled('farm_id'),
+                    fn ($q) => $q->where('farm_id', $this->ownedFarmId($request, $request->input('farm_id'))))
+                ->get();
           
         
 
@@ -1238,7 +1297,11 @@ public function addTodaysQuantity(Request $request){
                 'data' => $managers,
                 
             ], 200);
-        } catch (Exception $e) {
+        } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
+    } catch (Exception $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Something went wrong',
@@ -1254,6 +1317,9 @@ public function addTodaysQuantity(Request $request){
     try {
         
        
+        // Refuse before touching anything the caller does not own.
+        $this->ownedTeamMember($request, $request->manager_id);
+
         $manager_id= $request->manager_id;
         $data= $request->all();
         $msg= '';
@@ -1294,6 +1360,10 @@ public function addTodaysQuantity(Request $request){
             'data' => $manager_access
         ], 200);
 
+    } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
     } catch (\Exception $e) {
         return response()->json([
             'status' => false,
@@ -1310,6 +1380,9 @@ public function addTodaysQuantity(Request $request){
     try {
         
        
+        // Refuse before touching anything the caller does not own.
+        $this->ownedTeamMember($request, $request->partner_id);
+
         $partner_id= $request->partner_id;
         $data= $request->all();
        // dd($data);
@@ -1351,6 +1424,10 @@ public function addTodaysQuantity(Request $request){
             'data' => $partner_access
         ], 200);
 
+    } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
     } catch (\Exception $e) {
         return response()->json([
             'status' => false,
@@ -1508,15 +1585,7 @@ public function addTodaysQuantity(Request $request){
     public function deleteManager(Request $request)
 {
     try { 
-        $id= $request->id;
-        $manager = Manager::find($id);
-
-        if (!$manager) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Manager not found',
-            ], 404);
-        }
+        $manager = $this->ownedTeamMember($request, $request->id);
 
         $manager->delete(); // soft delete
 
@@ -1526,6 +1595,10 @@ public function addTodaysQuantity(Request $request){
             'message' => 'Manager deleted successfully',
         ], 200);
 
+    } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
     } catch (\Exception $e) {
         return response()->json([
             'status' => false,
@@ -1541,15 +1614,7 @@ public function addTodaysQuantity(Request $request){
     public function deletePartner(Request $request)
 {
     try { 
-        $id= $request->id;
-        $partner = Manager::find($id);
-
-        if (!$partner) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Partner not found',
-            ], 404);
-        }
+        $partner = $this->ownedTeamMember($request, $request->id);
 
         $partner->delete(); // soft delete
 
@@ -1559,6 +1624,10 @@ public function addTodaysQuantity(Request $request){
             'message' => 'Partner deleted successfully',
         ], 200);
 
+    } catch (HttpResponseException $e) {
+        // The ownership guards throw this to return a clean 401/403. Without
+        // this clause the broad catch below would swallow it into a 500.
+        throw $e;
     } catch (\Exception $e) {
         return response()->json([
             'status' => false,

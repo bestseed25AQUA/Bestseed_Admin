@@ -71,7 +71,7 @@ Route::middleware(['auth:sanctum', 'role:farmer,hatchery'])->group(function () {
 
 
 //manager api beg
-Route::prefix('manager')->group(function () {
+Route::prefix('manager')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
     // add manager
     Route::post('/create', [FarmController::class, 'createManager']);
     //mangers list
@@ -89,7 +89,7 @@ Route::prefix('manager')->group(function () {
 
 
 //create partner beg
-Route::prefix('partner')->group(function () {
+Route::prefix('partner')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
     // add manager
     Route::post('/create', [FarmController::class, 'createPartner']);
     //mangers list
@@ -107,14 +107,17 @@ Route::prefix('partner')->group(function () {
 //create partner end
 
 //farm access (QR + PIN) beg
-Route::prefix('farmer')->group(function () {
+Route::prefix('farmer')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
     // Farmer side: issue and manage access codes for one of their farms.
+    // Ownership is enforced inside the controller (only the owner holds the keys).
     Route::post('/farm/{farm}/access/generate', [FarmAccessController::class, 'generate']);
     Route::get('/farm/{farm}/access', [FarmAccessController::class, 'index']);
     Route::get('/farm/{farm}/grantees', [FarmAccessController::class, 'grantees']);
     Route::post('/access/{grant}/revoke', [FarmAccessController::class, 'revoke']);
 
     // Scanner side: two-step redeem (resolve QR, then confirm PIN).
+    // Authenticated so the grant records *which* farmer redeemed it — that id
+    // is what later grants them sight of the farm.
     Route::post('/access/redeem', [FarmAccessController::class, 'redeem']);
     Route::post('/access/verify-pin', [FarmAccessController::class, 'verifyPin']);
 });
@@ -128,46 +131,6 @@ Route::prefix('farmer')->group(function () {
     Route::post('/send-otp', [UserAuthController::class, 'sendOtp']);
     Route::post('/verify-otp', [UserAuthController::class, 'verifyOtp']);
     Route::post('/resend-otp', [UserAuthController::class, 'resendOtp']);
-
-    Route::post('/create-farm', [FarmController::class, 'createFarm']);
-
-    //farm- lists
-    Route::get('/farm-lists', [FarmController::class, 'index']);
-    Route::post('farms/{id}', [FarmController::class, 'update']); // edit farm
-
-    //delete farm
-    Route::get('/farm/delete/{id}', [FarmController::class, 'deleteFarm']);
-
-    //add tank for a farm
-    Route::post('/farm/create-tank', [FarmController::class, 'createTank']);
-
-    //get feed and store of a farm
-    Route::get('/farm/feed-store/{id}', [FarmController::class, 'getTotalFeedandStore']);
-
-    //update farm total feed used and store value
-    Route::post('/farm/{id}/update-total-feed', [FarmController::class, 'updateTotalFeed']);
-
-    //add todays tank feed
-    Route::post('/tanks/add-todays-tanks-quantity', [FarmController::class, 'addTodaysQuantity']);
-
-    //update today tank feed
-    Route::post('/tanks/update-tanks-quantity', [FarmController::class, 'updateTankQuantity']);
-
-    //change/update tank status on click on on/off button
-    Route::post('/tank/status', [FarmController::class, 'changeTankStatus']);
-
-    //farm tank list-GET /api/farms/{farm_id}/tanks
-    Route::get('/farms/{farm_id}/tanks', [FarmController::class, 'farmTanks']);
-    //tank feed history
-    Route::post('tank-feed-history', [FarmController::class, 'getTankFeedHistory']);
-
-    //download tank feed report
-    Route::post('/download-tank-feed-report', [FarmController::class, 'downloadFeedReport']);
-
-    //low feed limit check and send notification
-    Route::get('/feed/check-limit/{farm_id}', [FarmController::class, 'checkFeedLimit']);
-
-    //farm management end
 
     // 🌐 Public routes (no auth needed — banners, news, deals)
     Route::get('/banner_bg', [BannerController::class, 'bannerBackground']);
@@ -186,6 +149,48 @@ Route::prefix('farmer')->group(function () {
 
     // 🔒 Protected routes (need token)
     Route::middleware(['auth:sanctum', 'farmer.active'])->group(function () {
+
+        // 🔒 Farm management (moved under auth — farmer resolved from token)
+        Route::post('/create-farm', [FarmController::class, 'createFarm']);
+
+        //farm- lists
+        Route::get('/farm-lists', [FarmController::class, 'index']);
+        Route::post('farms/{id}', [FarmController::class, 'update'])->middleware('farm.access:edit'); // edit farm
+
+        //delete farm
+        Route::get('/farm/delete/{id}', [FarmController::class, 'deleteFarm'])->middleware('farm.access:delete');
+
+        //add tank for a farm
+        Route::post('/farm/create-tank', [FarmController::class, 'createTank'])->middleware('farm.access:create');
+
+        //get feed and store of a farm
+        Route::get('/farm/feed-store/{id}', [FarmController::class, 'getTotalFeedandStore'])->middleware('farm.access:view');
+
+        //update farm total feed used and store value
+        Route::post('/farm/{id}/update-total-feed', [FarmController::class, 'updateTotalFeed'])->middleware('farm.access:edit');
+
+        //add todays tank feed
+        Route::post('/tanks/add-todays-tanks-quantity', [FarmController::class, 'addTodaysQuantity'])->middleware('farm.access:create');
+
+        //update today tank feed
+        Route::post('/tanks/update-tanks-quantity', [FarmController::class, 'updateTankQuantity'])->middleware('farm.access:edit');
+
+        //change/update tank status on click on on/off button
+        Route::post('/tank/status', [FarmController::class, 'changeTankStatus'])->middleware('farm.access:edit');
+
+        //farm tank list-GET /api/farms/{farm_id}/tanks
+        Route::get('/farms/{farm_id}/tanks', [FarmController::class, 'farmTanks'])->middleware('farm.access:view');
+        //tank feed history
+        Route::post('tank-feed-history', [FarmController::class, 'getTankFeedHistory'])->middleware('farm.access:view');
+
+        //download tank feed report
+        Route::post('/download-tank-feed-report', [FarmController::class, 'downloadFeedReport'])->middleware('farm.access:view');
+
+        //low feed limit check and send notification
+        Route::get('/feed/check-limit/{farm_id}', [FarmController::class, 'checkFeedLimit'])->middleware('farm.access:view');
+
+        //farm management end
+
         Route::get('/profile', [UserAuthController::class, 'profile']);
         // Add this line for update profile
         Route::post('/update-profile', [UserAuthController::class, 'updateProfile']);

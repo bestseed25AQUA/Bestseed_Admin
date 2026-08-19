@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\FarmAccessGrant;
 use App\Models\Manager;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,35 @@ class FarmAccessController extends Controller
     private const MAX_PIN_ATTEMPTS = 5;
 
     /**
+     * Resolve a farm the caller actually owns, or abort.
+     *
+     * Access codes are the farm's keys: only the owner may mint, list or revoke
+     * them. A manager holding edit rights must not be able to hand out further
+     * access, so this deliberately checks ownership rather than a permission
+     * flag.
+     */
+    private function ownedFarm(Request $request, $farmId): Farm
+    {
+        $farm = Farm::find($farmId);
+
+        if (!$farm) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'Farm not found',
+            ], 404));
+        }
+
+        if ((int) $farm->farmer_id !== (int) $request->user()->id) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'Only the farm owner can manage access codes.',
+            ], 403));
+        }
+
+        return $farm;
+    }
+
+    /**
      * POST /api/farmer/farm/{farm}/access/generate
      *
      * Creates a grant and returns the QR token plus the PIN. This is the only
@@ -35,11 +65,7 @@ class FarmAccessController extends Controller
      */
     public function generate(Request $request, $farmId)
     {
-        $farm = Farm::find($farmId);
-
-        if (!$farm) {
-            return response()->json(['status' => false, 'message' => 'Farm not found'], 404);
-        }
+        $farm = $this->ownedFarm($request, $farmId);
 
         $validator = validator($request->all(), [
             'role'          => ['required', Rule::in(['manager', 'partner'])],
@@ -89,6 +115,8 @@ class FarmAccessController extends Controller
      */
     public function index(Request $request, $farmId)
     {
+        $this->ownedFarm($request, $farmId);
+
         $query = FarmAccessGrant::where('farm_id', $farmId)->latest();
 
         if ($request->filled('role')) {
@@ -220,7 +248,7 @@ class FarmAccessController extends Controller
             $grant->update([
                 'manager_id'   => $manager->id,
                 'redeemed_at'  => now(),
-                'redeemed_by'  => $grant->farm->farmer_id ?? null,
+                'redeemed_by'  => $request->user()->id, // the farmer who scanned, not the owner
                 'pin_attempts' => 0,
             ]);
 
@@ -253,6 +281,8 @@ class FarmAccessController extends Controller
      */
     public function grantees(Request $request, $farmId)
     {
+        $this->ownedFarm($request, $farmId);
+
         $query = FarmAccessGrant::with(['manager', 'farm'])
             ->where('farm_id', $farmId)
             ->whereNotNull('redeemed_at')
@@ -297,13 +327,15 @@ class FarmAccessController extends Controller
      * Backs the "Remove" button. Revoking also strips the manager row's
      * permissions so an already-redeemed grant stops working immediately.
      */
-    public function revoke($grantId)
+    public function revoke(Request $request, $grantId)
     {
         $grant = FarmAccessGrant::find($grantId);
 
         if (!$grant) {
             return response()->json(['status' => false, 'message' => 'Access record not found'], 404);
         }
+
+        $this->ownedFarm($request, $grant->farm_id);
 
         DB::transaction(function () use ($grant) {
             $grant->update(['revoked_at' => now()]);

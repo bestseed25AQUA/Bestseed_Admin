@@ -119,6 +119,33 @@
         </li>
         @endif
 
+        @permission('farm-management.view')
+        @php
+            $farmMgmtActive = str_starts_with($currentRoute ?? '', 'farm-management.');
+        @endphp
+        <li class="nav-item {{ $farmMgmtActive ? 'active' : '' }}">
+            <a class="nav-link" data-toggle="collapse" href="#farmManagement"
+                aria-expanded="{{ $farmMgmtActive ? 'true' : 'false' }}" aria-controls="farmManagement">
+                <i class="fas fa-water menu-icon"></i>
+                <span class="menu-title">Farm Management</span>
+                <i class="menu-arrow"></i>
+            </a>
+            <div id="farmManagement" class="collapse {{ $farmMgmtActive ? 'show' : '' }}">
+                <ul class="nav flex-column sub-menu">
+                    <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.farms') ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('farm-management.farms.index') }}">Farms</a>
+                    </li>
+                    <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.team') ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('farm-management.team.index') }}">Managers &amp; Partners</a>
+                    </li>
+                    <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.grants') ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('farm-management.grants.index') }}">Access Codes (QR)</a>
+                    </li>
+                </ul>
+            </div>
+        </li>
+        @endpermission
+
         @permission('banners.view')
         <li class="nav-item {{ isActiveRoute('banners', $currentRoute, $isEditOrCreate) ? 'active' : '' }}">
             <a class="nav-link" href="{{ route('banners.index') }}">

@@ -45,6 +45,33 @@ class FarmAccessGrant extends Model
         'revoked_at'  => 'datetime',
     ];
 
+    /**
+     * Grants that can still be used: redeemed by someone, not revoked by the
+     * farmer, and not past their expiry. Everything that asks "does this person
+     * still have access?" goes through here.
+     */
+    public function scopeLive($query)
+    {
+        return $query
+            ->whereNotNull('redeemed_at')
+            ->whereNull('revoked_at')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            });
+    }
+
+    /** Grants redeemed by a specific farmer (the person who scanned the QR). */
+    public function scopeRedeemedBy($query, $farmerId)
+    {
+        return $query->where('redeemed_by', $farmerId);
+    }
+
+    /** Grants that carry read access to the farm. */
+    public function scopeWithViewAccess($query)
+    {
+        return $query->where('view_access', 1);
+    }
+
     public function farm()
     {
         return $this->belongsTo(Farm::class, 'farm_id');
