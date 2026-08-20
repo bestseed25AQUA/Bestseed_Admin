@@ -12,6 +12,8 @@ use App\Models\Feed;
 use App\Models\TankFeedHistory; 
 use App\Models\User;
 use App\Models\Manager;
+use App\Models\PushNotification;
+use Illuminate\Support\Facades\Log;
 use App\Models\FarmImage;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse; //added for tank feed report csv
@@ -127,8 +129,12 @@ class FarmController extends Controller
                         
                         $image = $file->move(public_path() . '/uploads/images/farms', $name);
                         // Save file path
-                        $base_url= 'https://aliceblue-wallaby-326294.hostingersite.com'; //live
-                        //$base_url= 'http://127.0.0.1:8000'; //local
+                        // Whichever host is actually serving this request. The
+                        // URL used to be hardcoded to one deployment, so a file
+                        // saved on THIS server was handed to the app as a link
+                        // to a DIFFERENT one — the image either 404'd or showed
+                        // whatever happened to sit at that path over there.
+                        $base_url = rtrim(config('app.url'), '/');
                         //$imagePaths[] = 'uploads/images/farms/' . $name; //in loop
                         $imagePaths[] = $base_url.'/uploads/images/farms/' . $name; //in loop 
 
@@ -302,8 +308,12 @@ class FarmController extends Controller
                         
                         $image = $file->move(public_path() . '/uploads/images/farms', $name);
                         // Save file path
-                        $base_url= 'https://aliceblue-wallaby-326294.hostingersite.com'; //live
-                        //$base_url= 'http://127.0.0.1:8000'; //local
+                        // Whichever host is actually serving this request. The
+                        // URL used to be hardcoded to one deployment, so a file
+                        // saved on THIS server was handed to the app as a link
+                        // to a DIFFERENT one — the image either 404'd or showed
+                        // whatever happened to sit at that path over there.
+                        $base_url = rtrim(config('app.url'), '/');
                         //$imagePaths[] = 'uploads/images/farms/' . $name; //in loop
                         $imagePaths[] = $base_url.'/uploads/images/farms/' . $name; //in loop 
 
@@ -764,11 +774,17 @@ public function addTodaysQuantity(Request $request){
                 $feed = Feed::where('tank_id', $Tank->id)->orderBy('updated_at','desc')->first(); //total feed used in all 
                 // $total_feeds_added_till_date= TankFeedHistory::where('tank_id', $Tank->id)->count();
                 //unique days of feed added
+                // Number of DISTINCT days this tank was fed.
+                //
+                // This used to be select+groupBy followed by ->count(). With a
+                // GROUP BY, count() runs "select count(*) ... group by date",
+                // which returns one row PER GROUP and Eloquent reads only the
+                // first — so a tank fed six times on one day reported 6 days
+                // instead of 1. Counting distinct dates directly is what was
+                // meant.
                 $total_feeds_added_till_date = TankFeedHistory::where('tank_id', $Tank->id)
-                                ->select(DB::raw('DATE(feed_date) as date'))
-                                // ->groupBy('date')
-                                    ->groupBy(DB::raw('DATE(feed_date)'))   // fixed
-                                ->count();
+                                ->distinct()
+                                ->count(DB::raw('DATE(feed_date)'));
                 $Tank->feed = $feed;
                 $Tank->day = @$total_feeds_added_till_date;
                 
@@ -863,7 +879,8 @@ public function addTodaysQuantity(Request $request){
       //  $downloadUrl =asset('storage/' . $filePath);;
       //  $downloadUrl= 'http://127.0.0.1:8000/reports/'.$fileName; //local////http://127.0.0.1:8000/storage/C:\\xampp\\htdocs\\techland_rvindra_code_folder\\best-seeds\\public\\reports/tank_feed_report_2025_11_15_01_22_14.csv"
 
-        $downloadUrl= 'https://aliceblue-wallaby-326294.hostingersite.com/reports/'.$fileName; //live
+        // Same reason as the farm images above: never hardcode the host.
+        $downloadUrl = rtrim(config('app.url'), '/') . '/reports/' . $fileName;
 
         return response()->json([
             'status' => true,
@@ -884,7 +901,11 @@ public function addTodaysQuantity(Request $request){
             // Calculate total feed quantity of that farm
             $totalFeed = Feed::where('farm_id', $farm_id)->sum('feed_quantity');
 
-            if ($totalFeed <= 0) {
+            // A farm with no feed recorded yet is NOT skipped: the alert is
+            // about how much is left in the store, and a farm can be stocked
+            // below its limit from day one. Returning 404 here meant those
+            // farms never got warned.
+            if (false) {
                 return response()->json([
                     'status' => false,
                     'message' => 'No feed data found for this farm.'
@@ -937,12 +958,10 @@ public function addTodaysQuantity(Request $request){
             // Calculate total feed quantity of that farm
             $totalFeed = Feed::where('farm_id', $farm_id)->sum('feed_quantity');
 
-            if ($totalFeed <= 0) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'No feed data found for this farm.'
-                ], 404);
-            }
+            // A farm with no feed recorded yet is deliberately NOT skipped.
+            // The warning is about what is LEFT in the store, and a farm can be
+            // stocked below its own limit from day one; the old 404 here meant
+            // those farms were never warned at all.
 
             // Compare with low limit
             $feed_remained_in_store= $store - $totalFeed;
@@ -955,15 +974,36 @@ public function addTodaysQuantity(Request $request){
                 $message = "Your feed level is low: " . "You have consumed ".$totalFeed. "and Your low feed limit is ".$lowLimit;
 
                 // 4. SAVE NOTIFICATION IN DATABASE
-                //$user_id= $request->user_id;
-                $user_id= 1;
-                Notification::create([
-                    'user_id' => $user_id,
-                    'title' => $title,
-                    'message' => $message,
-                    'type' => 'low_feed_limit',
-                    'is_read' => 0,
-                ]);
+                //
+                // This wrote to `notifications` with user_id = 1. That table
+                // holds VENDOR notification preferences and has no such column,
+                // so the insert threw and the whole endpoint 500'd — meaning the
+                // alert failed precisely when the feed WAS low. Farmer alerts
+                // belong in push_notifications, addressed to the farm's owner.
+                //
+                // Wrapped: failing to record the alert must never stop us
+                // telling the farmer about it.
+                try {
+                    PushNotification::create([
+                        'title'          => $title,
+                        'body'           => $message,
+                        'module'         => 'farm_management',
+                        'recipient_type' => 'farmer',
+                        'type'           => 'low_feed_limit',
+                        'farmer_id'      => $get_low_feed_limit_of_specific_farm->farmer_id,
+                        'data'           => [
+                            'farm_id'    => (int) $farm_id,
+                            'store'      => $store,
+                            'consumed'   => $totalFeed,
+                            'low_limit'  => $lowLimit,
+                        ],
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('Low-feed notification could not be saved', [
+                        'farm_id' => $farm_id,
+                        'error'   => $e->getMessage(),
+                    ]);
+                }
 
                  // 5. SEND NOTIFICATION USING FCM pending due to fcm
 
