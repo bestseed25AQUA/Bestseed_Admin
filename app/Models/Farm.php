@@ -66,11 +66,17 @@ class Farm extends Model
     {
         return $query->active()->where(function ($q) use ($farmerId) {
             $q->where('farmer_id', $farmerId)
-              ->orWhereIn('id', FarmAccessGrant::query()
+              ->orWhereIn('id', FarmAccessMember::query()
                   ->select('farm_id')
-                  ->redeemedBy($farmerId)
+                  ->forFarmer($farmerId)
                   ->withViewAccess()
                   ->live());
         });
+    }
+
+    /** Everyone who currently holds access to this farm. */
+    public function accessMembers()
+    {
+        return $this->hasMany(FarmAccessMember::class, 'farm_id');
     }
 }

@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Farm;
-use App\Models\FarmAccessGrant;
+use App\Models\FarmAccessMember;
 use App\Support\FarmPermission;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -33,14 +33,14 @@ class FarmAccessService
             return FarmPermission::owner();
         }
 
-        $grant = FarmAccessGrant::query()
+        $member = FarmAccessMember::query()
             ->where('farm_id', $farm->id)
-            ->redeemedBy($farmerId)
+            ->forFarmer($farmerId)
             ->live()
             ->latest('id')
             ->first();
 
-        return $grant ? FarmPermission::fromGrant($grant) : FarmPermission::none();
+        return $member ? FarmPermission::fromMember($member) : FarmPermission::none();
     }
 
     /**
@@ -67,11 +67,11 @@ class FarmAccessService
 
         // One query for every grant that matters, newest last so that writing
         // them into the map leaves the newest grant per farm in place.
-        $grants = $notOwned->isEmpty()
+        $members = $notOwned->isEmpty()
             ? collect()
-            : FarmAccessGrant::query()
+            : FarmAccessMember::query()
                 ->whereIn('farm_id', $notOwned->pluck('id'))
-                ->redeemedBy($farmerId)
+                ->forFarmer($farmerId)
                 ->live()
                 ->orderBy('id')
                 ->get()
@@ -85,9 +85,9 @@ class FarmAccessService
                 continue;
             }
 
-            $grant = $grants->get($farm->id);
-            $permissions[$farm->id] = $grant
-                ? FarmPermission::fromGrant($grant)
+            $member = $members->get($farm->id);
+            $permissions[$farm->id] = $member
+                ? FarmPermission::fromMember($member)
                 : FarmPermission::none();
         }
 

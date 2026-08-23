@@ -115,6 +115,13 @@ Route::prefix('farmer')->middleware(['auth:sanctum', 'farmer.active'])->group(fu
     Route::get('/farm/{farm}/grantees', [FarmAccessController::class, 'grantees']);
     Route::post('/access/{grant}/revoke', [FarmAccessController::class, 'revoke']);
 
+    // Direct access: pick people and grant them the farm, no QR involved.
+    // Anyone who already holds access may pass it on, capped at what they hold.
+    Route::get('/farmers/search', [FarmAccessController::class, 'searchFarmers']);
+    Route::get('/farm/{farm}/members', [FarmAccessController::class, 'members']);
+    Route::post('/farm/{farm}/members', [FarmAccessController::class, 'addMembers']);
+    Route::post('/members/{member}/revoke', [FarmAccessController::class, 'revokeMember']);
+
     // Scanner side: two-step redeem (resolve QR, then confirm PIN).
     // Authenticated so the grant records *which* farmer redeemed it — that id
     // is what later grants them sight of the farm.
@@ -182,6 +189,9 @@ Route::prefix('farmer')->group(function () {
         Route::get('/farms/{farm_id}/tanks', [FarmController::class, 'farmTanks'])->middleware('farm.access:view');
         //tank feed history
         Route::post('tank-feed-history', [FarmController::class, 'getTankFeedHistory'])->middleware('farm.access:view');
+        // Edit one recorded feed entry from the tank history screen.
+        Route::post('/tank-feed-entry', [FarmController::class, 'updateTankFeedEntry'])->middleware('farm.access:edit');
+        Route::post('/tank-feed-entry/delete', [FarmController::class, 'deleteTankFeedEntry'])->middleware('farm.access:delete');
 
         //download tank feed report
         Route::post('/download-tank-feed-report', [FarmController::class, 'downloadFeedReport'])->middleware('farm.access:view');

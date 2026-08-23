@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\FarmAccessGrant;
+use App\Models\FarmAccessMember;
 
 /**
  * What a single farmer is allowed to do with a single farm.
@@ -55,6 +56,20 @@ final class FarmPermission
             delete: (bool) $grant->delete_access,
             grantId: $grant->id,
             expiresAt: optional($grant->expires_at)->toIso8601String(),
+        );
+    }
+
+    /** Built from a membership row — however that member got their access. */
+    public static function fromMember(FarmAccessMember $member): self
+    {
+        return new self(
+            role: $member->role === self::ROLE_PARTNER ? self::ROLE_PARTNER : self::ROLE_MANAGER,
+            view: (bool) $member->view_access,
+            edit: (bool) $member->edit_access,
+            create: (bool) $member->create_access,
+            delete: (bool) $member->delete_access,
+            grantId: $member->grant_id,
+            expiresAt: optional($member->expires_at)->toIso8601String(),
         );
     }
 
