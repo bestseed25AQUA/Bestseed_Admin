@@ -12,6 +12,12 @@
         'delete_access' => ['Delete', 'Remove the farm and its tanks'],
     ];
     $current = (array) ($values ?? []);
+
+    // The farm detail page includes this once per member row alongside the
+    // grant form, so a fixed id would repeat. Duplicate ids make every
+    // <label for> point at the first checkbox on the page — clicking a label
+    // low down the table would silently tick a box in the form at the top.
+    $uid = $idPrefix ?? uniqid('perm');
 @endphp
 
 <div class="row">
@@ -19,10 +25,10 @@
         <div class="col-md-6 mb-2">
             <div class="form-check">
                 <input type="hidden" name="{{ $field }}" value="0">
-                <input class="form-check-input" type="checkbox" id="{{ $field }}"
+                <input class="form-check-input" type="checkbox" id="{{ $uid }}_{{ $field }}"
                     name="{{ $field }}" value="1"
                     {{ old($field, $current[$field] ?? 0) ? 'checked' : '' }}>
-                <label class="form-check-label" for="{{ $field }}">
+                <label class="form-check-label" for="{{ $uid }}_{{ $field }}">
                     <strong>{{ $label }}</strong>
                     <small class="d-block text-muted">{{ $hint }}</small>
                 </label>

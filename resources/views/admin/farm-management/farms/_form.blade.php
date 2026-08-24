@@ -56,4 +56,37 @@
             value="{{ old('low_feed_limit', $farm->low_feed_limit ?? '') }}">
         <small class="text-muted">A notification fires when the store drops below this.</small>
     </div>
+
+    {{-- Farm photos. The app shows up to two, so uploading replaces the set
+         rather than appending — otherwise a new photo could land third and
+         never be seen. --}}
+    <div class="col-md-12 form-group">
+        <label for="images">Farm Photos</label>
+        <input type="file" class="form-control-file" id="images" name="images[]"
+            accept="image/*" multiple>
+        <small class="text-muted">Up to 2 images, 5&nbsp;MB each. Uploading replaces the current photos.</small>
+
+        @error('images.*')
+            <div class="text-danger small mt-1">{{ $message }}</div>
+        @enderror
+
+        @php
+            $existingImages = [];
+            if (isset($farm) && $farm->images && $farm->images->images) {
+                $decoded = json_decode($farm->images->images, true);
+                $existingImages = is_array($decoded) ? $decoded : [];
+            }
+        @endphp
+
+        @if (!empty($existingImages))
+            <div class="d-flex flex-wrap mt-2">
+                @foreach ($existingImages as $image)
+                    <img src="{{ $image }}" alt="Farm photo"
+                        class="mr-2 mb-2 rounded border"
+                        style="width: 120px; height: 90px; object-fit: cover;"
+                        onerror="this.style.display='none'">
+                @endforeach
+            </div>
+        @endif
+    </div>
 </div>

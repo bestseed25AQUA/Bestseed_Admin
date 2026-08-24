@@ -27,7 +27,7 @@
                     </div>
                 @endif
 
-                <form action="{{ route('farm-management.farms.store') }}" method="POST">
+                <form action="{{ route('farm-management.farms.store') }}" method="POST" enctype="multipart/form-data">
                     @csrf
                     @include('admin.farm-management.farms._form', ['farm' => null, 'farmers' => $farmers])
 

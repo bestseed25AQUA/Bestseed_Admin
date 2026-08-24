@@ -427,6 +427,8 @@ class FarmController extends Controller
                     'stocking_date' => 'required|date',
                     'tanks' => 'required|integer|min:1',
                     'store' => 'required|numeric|min:0',
+            // Optional: the sheet may send it, older clients will not.
+            'low_feed_limit' => 'nullable|numeric|min:0',
                     'low_feed_limit' => 'nullable|numeric|min:0',
                 ]);
                 }
@@ -1978,7 +1980,16 @@ public function addTodaysQuantity(Request $request){
         }
 
         // total feed used in this farm
-        $farm->total_feed_used = Feed::where('farm_id', $farm->id)->sum('feed_quantity'); 
+        $farm->total_feed_used = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
+
+        // What is actually left in the store. `store` is the stock the farmer
+        // put in; everything fed since comes out of it. Computed here so the
+        // header, the low-feed check and anything else agree on one number.
+        $farm->remaining_store = round(
+            (float) $farm->store - (float) $farm->total_feed_used,
+            2
+        );
+
 
         return response()->json([
             'status' => true,
@@ -2035,6 +2046,10 @@ public function addTodaysQuantity(Request $request){
         // -------------------------------
        // $farm->total_feed_used  = $request->total_feed_used; //dont update otherwisewise calculation get wrong. disable
         $farm->store = $request->store;
+
+        if ($request->filled('low_feed_limit')) {
+            $farm->low_feed_limit = $request->input('low_feed_limit');
+        }
 
         $farm->save();
 

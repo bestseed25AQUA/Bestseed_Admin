@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
+use App\Models\FarmImage;
 use App\Models\Farmer;
 use App\Models\Feed;
 use App\Models\Manager;
@@ -87,7 +88,10 @@ class FarmManagementController extends Controller
         }
 
         try {
-            $farm = Farm::create($validator->validated());
+            // `images` is a file upload, not a farms column.
+            $farm = Farm::create(collect($validator->validated())->except('images')->all());
+
+            $this->saveImages($request, $farm);
 
             Log::info('Admin created farm', ['farm_id' => $farm->id]);
 
@@ -120,8 +124,20 @@ class FarmManagementController extends Controller
 
         $totalFeedUsed = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
 
+        // Who actually holds access — QR scanners and directly-assigned
+        // people alike. Distinct from $grants, which are only invitations.
+        $members = $farm->accessMembers()
+            ->with(['farmer', 'grantedBy'])
+            ->orderByDesc('id')
+            ->get();
+
+        // For the "give access directly" picker.
+        $farmers = Farmer::where('id', '!=', $farm->farmer_id)
+            ->orderBy('first_name')
+            ->get();
+
         return view('admin.farm-management.farms.show', compact(
-            'farm', 'tanks', 'team', 'grants', 'totalFeedUsed'
+            'farm', 'tanks', 'team', 'grants', 'totalFeedUsed', 'members', 'farmers'
         ));
     }
 
@@ -144,7 +160,9 @@ class FarmManagementController extends Controller
         }
 
         try {
-            $farm->update($validator->validated());
+            $farm->update(collect($validator->validated())->except('images')->all());
+
+            $this->saveImages($request, $farm);
 
             return redirect()->route('farm-management.farms.show', $farm->id)
                 ->with('success', 'Farm updated successfully.');
@@ -258,6 +276,39 @@ class FarmManagementController extends Controller
         }
     }
 
+    /**
+     * Store uploaded farm photos the same way the app does: files under
+     * public/uploads/images/farms, and a JSON array of absolute URLs in
+     * farm_images.images. Absolute so existing app clients keep working.
+     *
+     * Uploading replaces the whole set — the app only ever shows two photos,
+     * so appending would quietly hide what was just added.
+     */
+    private function saveImages(Request $request, Farm $farm): void
+    {
+        if (!$request->hasFile('images')) {
+            return;
+        }
+
+        $baseUrl = rtrim(config('app.url'), '/');
+        $paths   = [];
+
+        foreach ($request->file('images') as $file) {
+            $name = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('uploads/images/farms'), $name);
+            $paths[] = $baseUrl . '/uploads/images/farms/' . $name;
+        }
+
+        if (empty($paths)) {
+            return;
+        }
+
+        FarmImage::updateOrCreate(
+            ['farm_id' => $farm->id],
+            ['images' => json_encode($paths)]
+        );
+    }
+
     private function rules(): array
     {
         return [
@@ -268,6 +319,8 @@ class FarmManagementController extends Controller
             'no_of_tanks'    => 'nullable|integer|min:0',
             'store'          => 'nullable|numeric|min:0',
             'low_feed_limit' => 'nullable|numeric|min:0',
+            'images'         => 'nullable|array|max:2',
+            'images.*'       => 'image|mimes:jpg,jpeg,png,webp|max:5120',
         ];
     }
 

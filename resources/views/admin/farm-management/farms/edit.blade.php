@@ -28,7 +28,7 @@
                     </div>
                 @endif
 
-                <form action="{{ route('farm-management.farms.update', $farm->id) }}" method="POST">
+                <form action="{{ route('farm-management.farms.update', $farm->id) }}" method="POST" enctype="multipart/form-data">
                     @csrf
                     @method('PUT')
                     @include('admin.farm-management.farms._form', ['farm' => $farm, 'farmers' => $farmers])

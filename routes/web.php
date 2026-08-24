@@ -25,6 +25,8 @@ use App\Http\Controllers\Admin\DriverController;
 use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\FarmManagementController;
 use App\Http\Controllers\Admin\FarmAccessGrantController;
+use App\Http\Controllers\Admin\FarmAccessMemberController;
+use App\Http\Controllers\Admin\FarmTankController;
 use App\Http\Controllers\Admin\FarmTeamController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SubAdminController;
@@ -187,6 +189,26 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::get('admin/farm-management/team/{member}/edit', [FarmTeamController::class, 'edit'])->name('farm-management.team.edit');
     Route::put('admin/farm-management/team/{member}', [FarmTeamController::class, 'update'])->name('farm-management.team.update');
     Route::delete('admin/farm-management/team/{member}', [FarmTeamController::class, 'destroy'])->name('farm-management.team.destroy');
+
+    // Tanks and their feed records — the admin equivalent of what a farmer
+    // can do inside a farm in the app.
+    Route::post('admin/farm-management/farms/{farm}/tanks', [FarmTankController::class, 'store'])->name('farm-management.tanks.store');
+    Route::put('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'update'])->name('farm-management.tanks.update');
+    Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'destroy'])->name('farm-management.tanks.destroy');
+    Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/toggle-status', [FarmTankController::class, 'toggleStatus'])->name('farm-management.tanks.toggle-status');
+    Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'feedHistory'])->name('farm-management.tanks.feed');
+    Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'storeFeed'])->name('farm-management.tanks.feed.store');
+    Route::put('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'updateFeed'])->name('farm-management.tanks.feed.update');
+    Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'destroyFeed'])->name('farm-management.tanks.feed.destroy');
+
+    // Who actually holds access to a farm — QR scanners and directly-assigned
+    // people alike. A grant is the invitation; this is the access itself.
+    Route::get('admin/farm-management/members', [FarmAccessMemberController::class, 'index'])->name('farm-management.members.index');
+    Route::post('admin/farm-management/farms/{farm}/members', [FarmAccessMemberController::class, 'store'])->name('farm-management.members.store');
+    Route::put('admin/farm-management/members/{member}', [FarmAccessMemberController::class, 'update'])->name('farm-management.members.update');
+    Route::post('admin/farm-management/members/{member}/revoke', [FarmAccessMemberController::class, 'revoke'])->name('farm-management.members.revoke');
+    Route::post('admin/farm-management/members/{member}/restore', [FarmAccessMemberController::class, 'restore'])->name('farm-management.members.restore');
+    Route::delete('admin/farm-management/members/{member}', [FarmAccessMemberController::class, 'destroy'])->name('farm-management.members.destroy');
 
     Route::get('admin/farm-management/access-codes', [FarmAccessGrantController::class, 'index'])->name('farm-management.grants.index');
     Route::post('admin/farm-management/access-codes', [FarmAccessGrantController::class, 'store'])->name('farm-management.grants.store');
