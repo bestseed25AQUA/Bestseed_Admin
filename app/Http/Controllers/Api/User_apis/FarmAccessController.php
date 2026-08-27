@@ -464,11 +464,16 @@ class FarmAccessController extends Controller
 
             $left = max(0, self::MAX_PIN_ATTEMPTS - $grant->pin_attempts);
 
+            // 422, not 401. The caller's token is perfectly valid — they are
+            // signed in, they just typed the wrong farm PIN. The apps treat
+            // 401 as "this session is dead", wipe the token and bounce to
+            // login saying the account was used on another device, so a
+            // mistyped PIN was signing people out of the app entirely.
             return response()->json([
                 'status'            => false,
                 'message'           => 'Incorrect PIN. Please try again.',
                 'attempts_remaining'=> $left,
-            ], 401);
+            ], 422);
         }
 
         // PIN correct — attach the person to the farm inside a transaction so a

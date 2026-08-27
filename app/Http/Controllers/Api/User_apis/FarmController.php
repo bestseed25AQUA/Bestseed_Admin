@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Farmer;
 use App\Models\Farm;
+use App\Services\FeedBackfillService;
 use App\Models\Tank;
 use App\Models\Feed;
 use App\Models\TankFeedHistory;
@@ -28,7 +29,6 @@ use Illuminate\Support\Str;
 class FarmController extends Controller
 {
     /** Upper bound on rows a single backfill may insert. */
-    private const MAX_BACKFILL_ROWS = 5000;
 
     public function __construct(private readonly FarmAccessService $farmAccess)
     {
@@ -243,168 +243,21 @@ class FarmController extends Controller
     /**
      * Remove a farm's generated back-history, leaving hand-entered feed alone.
      *
-     * Only rows written by [backfillPastFeed] carry is_backfill = 1, so a farmer
-     * who has been recording daily since keeps every one of those entries when
-     * they correct the "feed already used" figure.
+     * The work lives in [FeedBackfillService] because the admin panel creates
+     * farms too, and a farm built there must be indistinguishable from one the
+     * farmer made themselves.
      */
     private function clearBackfilledFeed(Farm $farm): void
     {
-        // A farm generated before is_backfill existed has no marked rows, so
-        // there is no way to tell its generated history from hand-entered feed.
-        // Correcting its figure therefore rewrites the farm's feed history
-        // wholesale; from then on the marks exist and only generated rows go.
-        $legacy = $farm->feed_used_before === null
-            && Feed::where('farm_id', $farm->id)->where('is_backfill', 1)->doesntExist();
-
-        DB::transaction(function () use ($farm, $legacy) {
-            Feed::where('farm_id', $farm->id)
-                ->when(!$legacy, fn ($q) => $q->where('is_backfill', 1))
-                ->delete();
-
-            TankFeedHistory::where('farm_id', $farm->id)
-                ->when(!$legacy, fn ($q) => $q->where('is_backfill', 1))
-                ->delete();
-
-            // Rebuild each tank's running total from whatever survived.
-            foreach (Tank::where('farm_id', $farm->id)->pluck('id') as $tankId) {
-                Tank::where('id', $tankId)->update([
-                    'total_feed_used' => (float) Feed::where('tank_id', $tankId)->sum('feed_quantity'),
-                ]);
-            }
-
-            $farm->forceFill(['feed_used_before' => null])->save();
-        });
+        app(FeedBackfillService::class)->clear($farm);
     }
 
-    /**
-     * Meals per day for a stock that is [$dayNumber] days old (1 = stocking day).
-     *
-     *   days  1-7   -> 2 meals
-     *   days  8-14  -> 3 meals
-     *   day  15+    -> 4 meals
-     *
-     * Feeding steps up as the stock grows, so a backfilled history that used a
-     * flat 1 meal a day did not resemble how the farm was actually run.
-     */
-    private function mealsForDay(int $dayNumber): int
-    {
-        if ($dayNumber <= 7) {
-            return 2;
-        }
-
-        if ($dayNumber <= 14) {
-            return 3;
-        }
-
-        return 4;
-    }
-
-    /**
-     * Spread feed already used over the days since stocking.
-     *
-     * A farmer registering a farm that was stocked weeks ago has history the
-     * app knows nothing about, so every tank reads "0 kgs, Day 0". They enter
-     * one figure — the total fed so far — and it is divided evenly:
-     *
-     *     per tank         = total / tankCount
-     *     per tank per day = per tank / days since stocking
-     *
-     * A row is written per tank per day so the tank history screen shows every
-     * date from the stocking date to today, exactly as if it had been recorded
-     * daily. Totals, the Days count and the low-feed check all pick it up
-     * because they read these same tables.
-     */
+    /** @see FeedBackfillService::apply() */
     private function backfillPastFeed(Farm $farm, array $tankIds, float $totalUsed): void
     {
-        if ($totalUsed <= 0 || empty($tankIds) || empty($farm->stocking_date)) {
-            return;
-        }
-
-        try {
-            $start = Carbon::parse($farm->stocking_date)->startOfDay();
-            $today = Carbon::now()->startOfDay();
-
-            // Nothing to spread for a farm stocked today or in the future.
-            if ($start->greaterThanOrEqualTo($today)) {
-                return;
-            }
-
-            $days = $start->diffInDays($today) + 1; // inclusive of both ends
-
-            // A very old stocking date times many tanks could mean a huge
-            // number of rows; refuse rather than lock up the request.
-            if ($days * count($tankIds) > self::MAX_BACKFILL_ROWS) {
-                Log::warning('Skipped feed backfill: too many rows', [
-                    'farm_id' => $farm->id,
-                    'days'    => $days,
-                    'tanks'   => count($tankIds),
-                ]);
-                return;
-            }
-
-            $rowCount = count($tankIds) * $days;
-
-            // Split so the rows add up to EXACTLY what was entered.
-            //
-            // Rounding each row to 2dp independently drifts: 25000 over 138
-            // rows is 181.159420, which rounds to 181.16 and multiplies back to
-            // 25000.08. Round DOWN to a base, then hand out the leftover a
-            // paisa at a time, so the sum reconciles with the farmer's figure.
-            $base      = floor($totalUsed / $rowCount * 100) / 100;
-            $remainder = (int) round(($totalUsed - $base * $rowCount) * 100);
-
-            if ($base <= 0 && $remainder <= 0) {
-                return;
-            }
-
-            $now   = now();
-            $rows  = [];
-            $index = 0;
-
-            foreach ($tankIds as $tankId) {
-                for ($d = 0; $d < $days; $d++) {
-                    // The first $remainder rows carry one extra paisa.
-                    $quantity = $base + ($index < $remainder ? 0.01 : 0);
-                    $index++;
-
-                    $rows[] = [
-                        'meals'         => $this->mealsForDay($d + 1),
-                        'tank_id'       => $tankId,
-                        'farm_id'       => $farm->id,
-                        'feed_quantity' => round($quantity, 2),
-                        'feed_date'     => $start->copy()->addDays($d)->toDateString(),
-                        'is_backfill'   => 1,
-                        'created_at'    => $now,
-                        'updated_at'    => $now,
-                    ];
-                }
-            }
-
-            DB::transaction(function () use ($rows, $tankIds) {
-                foreach (array_chunk($rows, 500) as $chunk) {
-                    Feed::insert($chunk);
-                    TankFeedHistory::insert($chunk);
-                }
-
-                // Keep each tank's running total in step with its own rows —
-                // they can differ by a paisa after the remainder is handed out.
-                foreach ($tankIds as $tankId) {
-                    Tank::where('id', $tankId)->update([
-                        'total_feed_used' => (float) Feed::where('tank_id', $tankId)->sum('feed_quantity'),
-                    ]);
-                }
-            });
-            // Remember what was entered so the edit form can show it back and
-            // so a later correction knows what it is replacing.
-            $farm->forceFill(['feed_used_before' => $totalUsed])->save();
-        } catch (\Throwable $e) {
-            // A farm is still a valid farm without its back-history.
-            Log::warning('Feed backfill failed', [
-                'farm_id' => $farm->id,
-                'error'   => $e->getMessage(),
-            ]);
-        }
+        app(FeedBackfillService::class)->apply($farm, $tankIds, $totalUsed);
     }
+
 
     /** A manager/partner row sitting on one of the caller's farms, or abort. */
     private function ownedTeamMember(Request $request, $memberId): Manager
@@ -1274,9 +1127,13 @@ public function addTodaysQuantity(Request $request){
 
            //latest feed
           
+          // The farm's stocking date, read once rather than per tank. Almost
+          // no tank carries its own — the date is set on the farm — so the
+          // tank's own value is only a per-tank override when present.
+          $farmStockingDate = Farm::withTrashed()->where('id', $farm_id)->value('stocking_date');
+
           // Add latest feed data
-            $days= 1; //first day deefault
-            $Tanks = $Tanks->map(function ($Tank) {
+            $Tanks = $Tanks->map(function ($Tank) use ($farmStockingDate) {
 
             // $i=1;
 
@@ -1297,7 +1154,23 @@ public function addTodaysQuantity(Request $request){
                                 ->distinct()
                                 ->count(DB::raw('DATE(feed_date)'));
                 $Tank->feed = $feed;
-                $Tank->day = @$total_feeds_added_till_date;
+
+                // How old the crop is, NOT how many times it was fed.
+                //
+                // This used to be the count of distinct days that had a feed
+                // entry, so a day nobody recorded feed on never counted and
+                // the number stalled — a farm stocked on 1 Aug still read
+                // "Day 24" on the 27th. Age is measured from the stocking
+                // date, whether or not anyone logged feed that day, and the
+                // stocking day itself counts as day 1.
+                $stockingDate = $Tank->stocking_date ?: $farmStockingDate;
+
+                $Tank->day = $stockingDate
+                    ? Carbon::parse($stockingDate)->startOfDay()->diffInDays(now()->startOfDay()) + 1
+                    : 0;
+
+                // Kept separate: the number of days feed was actually recorded.
+                $Tank->fed_days = $total_feeds_added_till_date;
 
                 // EVERY entry recorded for this tank today, not just one.
                 //

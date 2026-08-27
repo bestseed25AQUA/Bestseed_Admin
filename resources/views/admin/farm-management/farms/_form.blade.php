@@ -41,7 +41,7 @@
         <label for="no_of_tanks">Number of Tanks</label>
         <input type="number" min="0" class="form-control" id="no_of_tanks" name="no_of_tanks"
             value="{{ old('no_of_tanks', $farm->no_of_tanks ?? '') }}">
-        <small class="text-muted">Declared count. Actual tank rows are managed from the farm detail page.</small>
+        <small class="text-muted">Tanks are created with the farm. Afterwards, manage them from the farm detail page.</small>
     </div>
 
     <div class="col-md-4 form-group">
@@ -55,6 +55,23 @@
         <input type="number" step="0.01" min="0" class="form-control" id="low_feed_limit" name="low_feed_limit"
             value="{{ old('low_feed_limit', $farm->low_feed_limit ?? '') }}">
         <small class="text-muted">A notification fires when the store drops below this.</small>
+    </div>
+
+    {{-- Feed already used. Mirrors the app's field: a farm stocked in the past
+         has history nobody recorded, and one figure fills it in. --}}
+    <div class="col-md-4 form-group">
+        <label for="feed_used_before">Feed Already Used (kg)</label>
+        <input type="number" step="0.01" min="0" class="form-control"
+            id="feed_used_before" name="feed_used_before"
+            value="{{ old('feed_used_before', $farm->feed_used_before ?? '') }}">
+        <small class="text-muted">
+            @isset($farm)
+                Changing this rebuilds the generated history. Feed recorded by hand is kept.
+            @else
+                For a farm stocked in the past. Spread evenly over every tank and every day
+                since the stocking date.
+            @endisset
+        </small>
     </div>
 
     {{-- Farm photos. The app shows up to two, so uploading replaces the set

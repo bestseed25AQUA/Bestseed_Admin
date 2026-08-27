@@ -23,7 +23,7 @@ class FarmTankController extends Controller
 {
     public function __construct(private TankFeedService $feed)
     {
-        $this->middleware('permission:farm-management.view')->only(['feedHistory']);
+        $this->middleware('permission:farm-management.view')->only(['feedHistory', 'feedReport']);
         $this->middleware('permission:farm-management.create')->only(['store', 'storeFeed']);
         $this->middleware('permission:farm-management.update')->only(['update', 'toggleStatus', 'updateFeed']);
         $this->middleware('permission:farm-management.delete')->only(['destroy', 'destroyFeed']);
@@ -202,6 +202,54 @@ class FarmTankController extends Controller
 
             return redirect()->back()->with('error', 'Could not delete the feed entry: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * The same feed report the app offers, streamed straight to the browser.
+     *
+     * The app's endpoint writes a file into public/reports and returns a link,
+     * because a phone needs a URL to hand to its downloader. A browser does
+     * not, so this streams the rows instead — no files accumulating on disk.
+     */
+    public function feedReport($farmId, $tankId)
+    {
+        $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
+        $farm = Farm::withTrashed()->findOrFail($farmId);
+
+        $filename = sprintf(
+            '%s_%s_feed_%s.csv',
+            \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
+            \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
+            now()->format('Y_m_d')
+        );
+
+        $entries = TankFeedHistory::where('tank_id', $tank->id)
+            ->orderBy('feed_date')
+            ->orderBy('id')
+            ->get();
+
+        return response()->streamDownload(function () use ($entries, $farm, $tank) {
+            $out = fopen('php://output', 'w');
+
+            fputcsv($out, ['Farm', $farm->farm_name]);
+            fputcsv($out, ['Tank', $tank->tank_name]);
+            fputcsv($out, ['Stocking Date', $tank->stocking_date ?: $farm->stocking_date]);
+            fputcsv($out, ['Total Feed Used (kg)', $tank->total_feed_used]);
+            fputcsv($out, []);
+            fputcsv($out, ['ID', 'Date', 'Meals', 'Feed Quantity (kg)', 'Source']);
+
+            foreach ($entries as $entry) {
+                fputcsv($out, [
+                    $entry->id,
+                    \Illuminate\Support\Carbon::parse($entry->feed_date)->format('Y-m-d'),
+                    $entry->meals,
+                    $entry->feed_quantity,
+                    $entry->is_backfill ? 'Backfilled' : 'Logged',
+                ]);
+            }
+
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv']);
     }
 
     private function tankRules(): array

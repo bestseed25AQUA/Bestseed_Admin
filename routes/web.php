@@ -197,6 +197,7 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'destroy'])->name('farm-management.tanks.destroy');
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/toggle-status', [FarmTankController::class, 'toggleStatus'])->name('farm-management.tanks.toggle-status');
     Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'feedHistory'])->name('farm-management.tanks.feed');
+    Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed/report', [FarmTankController::class, 'feedReport'])->name('farm-management.tanks.feed.report');
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'storeFeed'])->name('farm-management.tanks.feed.store');
     Route::put('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'updateFeed'])->name('farm-management.tanks.feed.update');
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'destroyFeed'])->name('farm-management.tanks.feed.destroy');

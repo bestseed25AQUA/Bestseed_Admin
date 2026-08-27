@@ -23,6 +23,13 @@ class AdminFarmManagementWriteTest extends TestCase
 {
     public function test_admin_can_manage_tanks_feed_and_members(): void
     {
+        // These exercise admin against real farms, tanks and feed rows, so
+        // they run against the development MySQL database rather than the
+        // suite's in-memory sqlite. Skipped rather than failed elsewhere.
+        if (config('database.default') !== 'mysql') {
+            $this->markTestSkipped('Needs the development MySQL database.');
+        }
+
         $admin  = User::first();
         $farmer = Farmer::first();
         $this->assertNotNull($admin);

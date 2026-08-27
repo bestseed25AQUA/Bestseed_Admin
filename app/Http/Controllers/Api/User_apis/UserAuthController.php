@@ -176,7 +176,11 @@ class UserAuthController extends Controller
             ->first();
 
         if (!$otpRecord) {
-            return response()->json(['message' => 'Incorrect or expired OTP. Please try again.'], 401);
+            // 422 for the same reason as the farm PIN: a wrong OTP is a bad
+            // form value, not a dead session. As a 401 it tripped the apps'
+            // force-logout path, so a mistyped OTP landed the user on the
+            // login screen being told they had signed in on another device.
+            return response()->json(['message' => 'Incorrect or expired OTP. Please try again.'], 422);
         }
 
         // ✅ Mark OTP as verified
