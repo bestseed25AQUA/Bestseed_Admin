@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Storage; //added for tank csv api
 use App\Services\FarmAccessService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 
 
 class FarmController extends Controller
@@ -203,6 +204,24 @@ class FarmController extends Controller
      * is scoped through this. Only the owner manages a farm's team — a manager
      * with edit rights must not be able to appoint further managers.
      */
+    /**
+     * NULL for a value the form left empty, the trimmed value otherwise.
+     *
+     * The app posts every text field, so an untouched optional box arrives as
+     * "" rather than being absent. Stored as-is that is neither null nor a
+     * number, and later casts turn it into 0.
+     */
+    private function nullIfBlank($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
+    }
+
     private function ownedFarmIds(Request $request): array
     {
         return Farm::where('farmer_id', $request->user()->id)->pluck('id')->all();
@@ -426,10 +445,23 @@ class FarmController extends Controller
                     'farm_name' => 'required|string|max:255',
                     'stocking_date' => 'required|date',
                     'tanks' => 'required|integer|min:1',
-                    'store' => 'required|numeric|min:0',
-            // Optional: the sheet may send it, older clients will not.
-            'low_feed_limit' => 'nullable|numeric|min:0',
+                    // Optional: a farmer setting a farm up before any feed has
+                    // been delivered has no stock figure to give yet. The
+                    // column is already nullable, and they can fill it in
+                    // later from the farm's feed-store card.
+                    'store' => 'nullable|numeric|min:0',
+                    // Optional: the sheet may send it, older clients will not.
                     'low_feed_limit' => 'nullable|numeric|min:0',
+                    // Spread across the tanks and the days since stocking, so
+                    // it has to be a sane non-negative number — it was
+                    // unvalidated, and a negative one wrote negative feed rows.
+                    'feed_used_before' => 'nullable|numeric|min:0',
+                    // The app posts photos as `farm_image[]`. There WAS an
+                    // `images.*` rule on the edit endpoint, but nothing is ever
+                    // sent under that name, so every upload reached the move()
+                    // below unchecked — any file type, any size.
+                    'farm_image'   => 'nullable|array|max:20',
+                    'farm_image.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120',
                 ]);
                 }
                 //dd($validator);
@@ -475,10 +507,22 @@ class FarmController extends Controller
 
                         //$file = $request->file('farm_image');
                         $file = $v;
-                        $extension = $file->extension();
-                        $name = time() . "_" . $v->getClientOriginalName();
 
-                        
+                        // Name the file OURSELVES.
+                        //
+                        // This used to be `time() . "_" . getClientOriginalName()`,
+                        // which hands the caller the extension — and the target
+                        // is public_path(), inside the document root. An upload
+                        // called "shell.php" landed at a URL the web server
+                        // would happily execute. getClientOriginalName() also
+                        // carries the client's directory separators and unicode.
+                        //
+                        // extension() is guessed from the file's CONTENT, not
+                        // its name, and the validation above has already
+                        // confirmed it is a real image.
+                        $extension = $file->extension() ?: 'jpg';
+                        $name = time() . '_' . Str::random(24) . '.' . $extension;
+
                         $image = $file->move(public_path() . '/uploads/images/farms', $name);
                         // Save file path
                         // Whichever host is actually serving this request. The
@@ -503,8 +547,13 @@ class FarmController extends Controller
                     'farmer_id' => $request->user()->id,
                     'stocking_date' => $request->input('stocking_date'),
                     'no_of_tanks' => $request->input('tanks'),
-                    'store' => $request->input('store'),
-                    'low_feed_limit' => $request->input('low_feed_limit'),
+                    // Blank means "not known yet", stored as NULL rather than
+                    // the empty string the form posts. `store` is a string
+                    // column, so "" would survive and then read back as 0 in
+                    // every place that casts it — indistinguishable from a
+                    // farmer who really does have nothing in stock.
+                    'store' => $this->nullIfBlank($request->input('store')),
+                    'low_feed_limit' => $this->nullIfBlank($request->input('low_feed_limit')),
                 ]);
 
                 if(!empty($farm)){
@@ -612,11 +661,19 @@ class FarmController extends Controller
             'farm_name'      => 'required|string|max:255',
             'stocking_date'  => 'nullable|date',
             'no_of_tanks'    => 'nullable|integer|min:0',
-            'store' => 'required|numeric|min:0',
+            // Optional here for the same reason as on create — and because an
+            // edit that only changes the farm name should not force the farmer
+            // to invent a stock figure.
+            'store' => 'nullable|numeric|min:0',
             'low_feed_limit' => 'nullable|numeric|min:0',
-            // images can be an array of files OR array of url/strings depending on your frontend
-            'images'         => 'sometimes|array',
-            'images.*'       => 'file|mimes:jpg,jpeg,png,webp|max:5120' // 5MB each
+            'feed_used_before' => 'nullable|numeric|min:0',
+            // `farm_image`, not `images`.
+            //
+            // The old rules named a field the app has never sent — uploads go
+            // up as `farm_image[]` — so they matched nothing and every file
+            // reached move() unvalidated.
+            'farm_image'   => 'nullable|array|max:20',
+            'farm_image.*' => 'image|mimes:jpg,jpeg,png,webp|max:5120', // 5MB each
         ]);
 
         if ($validator->fails()) {
@@ -651,10 +708,10 @@ class FarmController extends Controller
                 $farm->no_of_tanks = $request->input('no_of_tanks');
             }
             if ($request->has('store')) {
-                $farm->store = $request->input('store');
+                $farm->store = $this->nullIfBlank($request->input('store'));
             }
             if ($request->has('low_feed_limit')) {
-                $farm->low_feed_limit = $request->input('low_feed_limit');
+                $farm->low_feed_limit = $this->nullIfBlank($request->input('low_feed_limit'));
             }
 
             // (the farm is saved further down; backfill reads the values
@@ -691,10 +748,22 @@ class FarmController extends Controller
 
                         //$file = $request->file('farm_image');
                         $file = $v;
-                        $extension = $file->extension();
-                        $name = time() . "_" . $v->getClientOriginalName();
 
-                        
+                        // Name the file OURSELVES.
+                        //
+                        // This used to be `time() . "_" . getClientOriginalName()`,
+                        // which hands the caller the extension — and the target
+                        // is public_path(), inside the document root. An upload
+                        // called "shell.php" landed at a URL the web server
+                        // would happily execute. getClientOriginalName() also
+                        // carries the client's directory separators and unicode.
+                        //
+                        // extension() is guessed from the file's CONTENT, not
+                        // its name, and the validation above has already
+                        // confirmed it is a real image.
+                        $extension = $file->extension() ?: 'jpg';
+                        $name = time() . '_' . Str::random(24) . '.' . $extension;
+
                         $image = $file->move(public_path() . '/uploads/images/farms', $name);
                         // Save file path
                         // Whichever host is actually serving this request. The
@@ -892,10 +961,18 @@ public function addTodaysQuantity(Request $request){
         
         // Validation for tank
         $validator = Validator::make($request->all(), [
-                'meals' => 'required|string|max:255',
+                // `numeric`, not `string`: meals is a count, and the string
+                // rule let "abc" through to be stored and then read back as 0
+                // by the app. Matches updateTankFeedEntry, which had it right.
+                'meals' => 'required|numeric|min:0',
                 'feed_quantity' => 'required|numeric|min:0',
-                //'feed_date' => 'required|date', //no need .from created_at column we will get
-                
+                // Optional — the app sends it to record a day that was missed.
+                // `before_or_equal:today` because feed cannot be given on a day
+                // that has not happened; it was unvalidated, and a typo of
+                // 2026 as 2062 wrote a row 36 years out that nothing could
+                // reach to correct.
+                'feed_date' => 'nullable|date|before_or_equal:today',
+                'tank_id' => 'required|exists:tanks,id',
             ]);
                 
             
@@ -1005,10 +1082,14 @@ public function addTodaysQuantity(Request $request){
             
             // Validation for tank
             $validator = Validator::make($request->all(), [
-                    'meals' => 'required|string|max:255',
+                    // Same corrections as addTodaysQuantity above: meals is a
+                    // count, not free text, and a feed date cannot be in the
+                    // future. This endpoint has no caller in the app today,
+                    // but it is routed and reachable with a valid token.
+                    'meals' => 'required|numeric|min:0',
                     'feed_quantity' => 'required|numeric|min:0',
-                    //'feed_date' => 'required|date', //no need .from created_at column we will get
-                    
+                    'feed_date' => 'nullable|date|before_or_equal:today',
+                    'tank_id' => 'required|exists:tanks,id',
                 ]);
                     
                 
@@ -1217,7 +1298,35 @@ public function addTodaysQuantity(Request $request){
                                 ->count(DB::raw('DATE(feed_date)'));
                 $Tank->feed = $feed;
                 $Tank->day = @$total_feeds_added_till_date;
-                
+
+                // EVERY entry recorded for this tank today, not just one.
+                //
+                // `feed` above is the tank's most recent row of ANY date, and
+                // the app presented it as today's — so a tank last fed a week
+                // ago showed that week-old figure under "Today's feed Update"
+                // with an Edit button beside it, and a second meal recorded
+                // today replaced the first on screen instead of joining it.
+                // Feed is given several times a day, so a day is a LIST.
+                $todaysFeed = TankFeedHistory::where('tank_id', $Tank->id)
+                                ->whereDate('feed_date', now()->toDateString())
+                                ->orderBy('id')
+                                ->get(['id', 'meals', 'feed_quantity', 'feed_date']);
+
+                $Tank->todays_feed = $todaysFeed->map(fn ($row) => [
+                    'id'            => $row->id,
+                    'meals'         => $row->meals,
+                    'feed_quantity' => $row->feed_quantity,
+                    'feed_date'     => $row->feed_date,
+                ])->values();
+
+                // Summed here so every screen shows the same day total instead
+                // of each adding the rows up its own way.
+                $Tank->todays_meals = $todaysFeed->sum(fn ($row) => (float) $row->meals);
+                $Tank->todays_quantity = round(
+                    $todaysFeed->sum(fn ($row) => (float) $row->feed_quantity),
+                    2
+                );
+
                 return $Tank;
 
                 //$i++;
@@ -1381,9 +1490,33 @@ public function addTodaysQuantity(Request $request){
         try {
             // Example: define your minimum threshold
             $get_low_feed_limit_of_specific_farm= Farm::where('id',$farm_id)->first();
+
+            if (!$get_low_feed_limit_of_specific_farm) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Farm not found',
+                    'data'    => [],
+                ], 404);
+            }
+
             //$lowLimit = 50; // in kg (you can change or fetch from settings table)
             $store= $get_low_feed_limit_of_specific_farm->store;
             $lowLimit = $get_low_feed_limit_of_specific_farm->low_feed_limit; // in kg (you can change or fetch from settings table)
+
+            // Nothing to warn about until BOTH figures exist.
+            //
+            // Both columns are nullable. Left as NULL they cast to 0 in the
+            // comparison below, so a farm with a stock figure nobody has
+            // entered yet computed "0 - 2000 = -2000 remaining, below a limit
+            // of 0" and alerted every single time the farm was opened — about
+            // a shortage of a quantity the farmer never claimed to have.
+            if ($store === null || $store === '' || $lowLimit === null || $lowLimit === '') {
+                return response()->json([
+                    'status'  => true,
+                    'message' => 'Feed limit not set for this farm',
+                    'data'    => ['status' => 'ok'],
+                ], 200);
+            }
 
             // Calculate total feed quantity of that farm
             $totalFeed = Feed::where('farm_id', $farm_id)->sum('feed_quantity');
@@ -1985,10 +2118,13 @@ public function addTodaysQuantity(Request $request){
         // What is actually left in the store. `store` is the stock the farmer
         // put in; everything fed since comes out of it. Computed here so the
         // header, the low-feed check and anything else agree on one number.
-        $farm->remaining_store = round(
-            (float) $farm->store - (float) $farm->total_feed_used,
-            2
-        );
+        //
+        // NULL when no stock figure has been entered — `store` is optional, and
+        // casting a missing one to 0 reported the farm as thousands of kilos
+        // overdrawn rather than simply unknown.
+        $farm->remaining_store = ($farm->store === null || $farm->store === '')
+            ? null
+            : round((float) $farm->store - (float) $farm->total_feed_used, 2);
 
 
         return response()->json([

@@ -489,6 +489,42 @@ class FarmAccessController extends Controller
                 ]
             );
 
+            // The membership is what ACTUALLY grants access.
+            //
+            // Farm::accessibleBy() and FarmAccessService::permissionFor() read
+            // farm_access_members and nothing else. Without a row here the
+            // scanner was told "Access granted successfully" and then the farm
+            // never appeared in their list and every farm endpoint answered
+            // 403 — the manager row above is only a name on the owner's list,
+            // it carries no rights and is not tied to a login at all.
+            //
+            // updateOrCreate, so re-scanning a fresher QR refreshes an existing
+            // member's permissions and expiry instead of stacking rows, and
+            // lifts a previous revocation rather than leaving it in force.
+            // An owner scanning their own code needs no membership — they hold
+            // every ability already, and a row here would list them among
+            // their own managers.
+            if ((int) $request->user()->id !== (int) $grant->farm->farmer_id) {
+                FarmAccessMember::updateOrCreate(
+                    [
+                        'farm_id'   => $grant->farm_id,
+                        'farmer_id' => $request->user()->id,
+                    ],
+                    [
+                        'grant_id'      => $grant->id,
+                        'granted_by'    => $grant->issued_by,
+                        'manager_id'    => $manager->id,
+                        'role'          => $grant->role,
+                        'view_access'   => $grant->view_access,
+                        'edit_access'   => $grant->edit_access,
+                        'create_access' => $grant->create_access,
+                        'delete_access' => $grant->delete_access,
+                        'expires_at'    => $grant->expires_at,
+                        'revoked_at'    => null,
+                    ]
+                );
+            }
+
             $grant->update([
                 'manager_id'   => $manager->id,
                 'redeemed_at'  => now(),
