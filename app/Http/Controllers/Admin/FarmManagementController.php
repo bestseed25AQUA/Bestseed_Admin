@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Validator;
  *
  * The farmer app scopes every farm query to the logged-in farmer; admin
  * deliberately does not — an admin sees and edits every farm, its tanks, its
- * team and its access codes.
+ * team and who has access to it.
  */
 class FarmManagementController extends Controller
 {
@@ -40,8 +40,10 @@ class FarmManagementController extends Controller
             ->withCount([
                 'tanks',
                 'tanks as active_tanks_count' => fn ($q) => $q->where('status', 1),
-                'accessGrants',
-                'accessGrants as live_grants_count' => fn ($q) => $q->live(),
+                // Who holds access, not how many codes were issued — the
+                // access-code counts went with the QR flow.
+                'accessMembers as access_members_count',
+                'accessMembers as live_members_count' => fn ($q) => $q->live(),
             ])
             ->when($request->filled('farmer_id'), fn ($q) => $q->where('farmer_id', $request->input('farmer_id')))
             ->when($request->input('status') === 'active', fn ($q) => $q->whereNull('deleted_at')->where('status', 1))
@@ -107,7 +109,7 @@ class FarmManagementController extends Controller
 
     /**
      * Farm detail — the one screen that shows the whole picture: owner, tanks,
-     * team, and every access code issued for the farm.
+     * team, and who holds access to it.
      */
     public function show($id)
     {
@@ -117,15 +119,10 @@ class FarmManagementController extends Controller
 
         $team = Manager::where('farm_id', $farm->id)->orderByDesc('id')->get();
 
-        $grants = $farm->accessGrants()
-            ->with('manager')
-            ->orderByDesc('id')
-            ->get();
-
         $totalFeedUsed = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
 
-        // Who actually holds access — QR scanners and directly-assigned
-        // people alike. Distinct from $grants, which are only invitations.
+        // Who holds access. There is no longer a separate list of issued codes
+        // sitting behind this — access is given to a person directly.
         $members = $farm->accessMembers()
             ->with(['farmer', 'grantedBy'])
             ->orderByDesc('id')
@@ -137,7 +134,7 @@ class FarmManagementController extends Controller
             ->get();
 
         return view('admin.farm-management.farms.show', compact(
-            'farm', 'tanks', 'team', 'grants', 'totalFeedUsed', 'members', 'farmers'
+            'farm', 'tanks', 'team', 'totalFeedUsed', 'members', 'farmers'
         ));
     }
 
@@ -175,13 +172,13 @@ class FarmManagementController extends Controller
     }
 
     /**
-     * Soft-delete the farm, and revoke — not delete — the access codes.
+     * Soft-delete the farm, and revoke — not delete — everyone's access.
      *
-     * The farm row survives, so its team and its codes must survive too;
-     * otherwise a restore brings back a farm whose whole access history has
-     * been silently destroyed. Codes are revoked rather than left live so a
-     * QR already in someone's hands cannot quietly work again after a restore.
-     * Use forceDestroy() when the farm really is meant to disappear.
+     * The farm row survives, so its team and its access history must survive
+     * too; otherwise a restore brings back a farm whose whole access history
+     * has been silently destroyed. Access is revoked rather than left live so
+     * that restoring the farm does not quietly hand it back to everyone who
+     * held it. Use forceDestroy() when the farm really is meant to disappear.
      */
     public function destroy($id)
     {
@@ -189,7 +186,14 @@ class FarmManagementController extends Controller
 
         try {
             DB::transaction(function () use ($farm) {
-                $farm->accessGrants()->whereNull('revoked_at')->update(['revoked_at' => now()]);
+                // Revoke the MEMBERSHIPS, not the old access codes.
+                //
+                // This used to revoke `farm_access_grants` and never touched
+                // `farm_access_members` — but that second table is the one
+                // FarmAccessService actually consults, so with the codes gone
+                // the revocation had to move across. Otherwise deleting and
+                // restoring a farm returned it with everyone's access intact.
+                $farm->accessMembers()->whereNull('revoked_at')->update(['revoked_at' => now()]);
 
                 Manager::where('farm_id', $farm->id)->update([
                     'view_access'   => 0,
@@ -202,7 +206,7 @@ class FarmManagementController extends Controller
             });
 
             return redirect()->route('farm-management.farms.index')
-                ->with('success', 'Farm deleted. Its access codes were revoked and its team kept, so it can be restored.');
+                ->with('success', 'Farm deleted. Access was revoked for everyone and its team kept, so it can be restored.');
         } catch (\Exception $e) {
             Log::error('Admin farm delete failed', ['farm_id' => $id, 'error' => $e->getMessage()]);
 
@@ -210,7 +214,7 @@ class FarmManagementController extends Controller
         }
     }
 
-    /** Bring back a soft-deleted farm. Codes stay revoked — reissue as needed. */
+    /** Bring back a soft-deleted farm. Access stays revoked — grant it again. */
     public function restore($id)
     {
         $farm = Farm::withTrashed()->findOrFail($id);
@@ -219,7 +223,7 @@ class FarmManagementController extends Controller
             $farm->restore();
 
             return redirect()->back()
-                ->with('success', 'Farm restored. Its previous access codes stay revoked — issue new ones if needed.');
+                ->with('success', 'Farm restored. Access stays revoked — give it again if needed.');
         } catch (\Exception $e) {
             Log::error('Admin farm restore failed', ['farm_id' => $id, 'error' => $e->getMessage()]);
 
@@ -228,8 +232,8 @@ class FarmManagementController extends Controller
     }
 
     /**
-     * Permanent removal. Only here does the team and the code history go too —
-     * there is no farm left for them to belong to.
+     * Permanent removal. Only here does the team and the access history go too
+     * — there is no farm left for them to belong to.
      */
     public function forceDestroy($id)
     {
@@ -237,13 +241,13 @@ class FarmManagementController extends Controller
 
         try {
             DB::transaction(function () use ($farm) {
-                $farm->accessGrants()->delete();
+                $farm->accessMembers()->delete();
                 Manager::where('farm_id', $farm->id)->delete();
                 $farm->forceDelete();
             });
 
             return redirect()->route('farm-management.farms.index')
-                ->with('success', 'Farm permanently deleted along with its team and access codes.');
+                ->with('success', 'Farm permanently deleted along with its team and everyone\'s access.');
         } catch (\Exception $e) {
             Log::error('Admin farm force delete failed', ['farm_id' => $id, 'error' => $e->getMessage()]);
 

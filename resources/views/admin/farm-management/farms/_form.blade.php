@@ -18,7 +18,7 @@
                 </option>
             @endforeach
         </select>
-        <small class="text-muted">The owner sees this farm in the app and can issue access codes for it.</small>
+        <small class="text-muted">The owner sees this farm in the app and can give others access to it.</small>
     </div>
 
     <div class="col-md-4 form-group">

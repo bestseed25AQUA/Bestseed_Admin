@@ -96,7 +96,7 @@
                                                     method="POST" class="d-inline confirm-form ml-1">
                                                     @csrf @method('DELETE')
                                                     <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
-                                                        data-confirm="They lose access immediately, and the QR code that created them is revoked.">
+                                                        data-confirm="They are removed from the team.">
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                 </form>

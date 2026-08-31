@@ -23,12 +23,6 @@ class Manager extends Model
         return $this->belongsTo(Farm::class, 'farm_id');
     }
 
-    /** The QR grants that created or refreshed this person's access. */
-    public function accessGrants()
-    {
-        return $this->hasMany(FarmAccessGrant::class, 'manager_id');
-    }
-
     /** 'partner' or 'manager' — the flag is stored, the word is derived. */
     public function getRoleLabelAttribute(): string
     {

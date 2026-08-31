@@ -4,10 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
-use App\Models\FarmAccessGrant;
 use App\Models\Manager;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -125,24 +123,21 @@ class FarmTeamController extends Controller
     }
 
     /**
-     * Removing a person also revokes the grant that produced them, otherwise
-     * the QR would still be redeemable and would silently recreate the row.
+     * Remove a person from the team.
+     *
+     * This also used to revoke the QR grant that produced them, so the code
+     * could not be redeemed again and silently recreate the row. There are no
+     * codes any more, so deleting the row is the whole job.
      */
     public function destroy($id)
     {
         $member = Manager::findOrFail($id);
 
         try {
-            DB::transaction(function () use ($member) {
-                FarmAccessGrant::where('manager_id', $member->id)
-                    ->whereNull('revoked_at')
-                    ->update(['revoked_at' => now()]);
-
-                $member->delete();
-            });
+            $member->delete();
 
             return redirect()->route('farm-management.team.index')
-                ->with('success', 'Removed, and any access code that created them was revoked.');
+                ->with('success', 'Removed.');
         } catch (\Exception $e) {
             Log::error('Admin team delete failed', ['manager_id' => $id, 'error' => $e->getMessage()]);
 

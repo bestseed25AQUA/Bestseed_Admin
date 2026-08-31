@@ -106,29 +106,21 @@ Route::prefix('partner')->middleware(['auth:sanctum', 'farmer.active'])->group(f
 });
 //create partner end
 
-//farm access (QR + PIN) beg
+//farm access beg
+//
+// The QR + PIN routes that used to sit here — access/generate, access,
+// grantees, access/{grant}/revoke, access/redeem and access/verify-pin — are
+// gone along with the flow itself. Access is granted by picking people
+// directly, which is what the routes below do.
 Route::prefix('farmer')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
-    // Farmer side: issue and manage access codes for one of their farms.
-    // Ownership is enforced inside the controller (only the owner holds the keys).
-    Route::post('/farm/{farm}/access/generate', [FarmAccessController::class, 'generate']);
-    Route::get('/farm/{farm}/access', [FarmAccessController::class, 'index']);
-    Route::get('/farm/{farm}/grantees', [FarmAccessController::class, 'grantees']);
-    Route::post('/access/{grant}/revoke', [FarmAccessController::class, 'revoke']);
-
-    // Direct access: pick people and grant them the farm, no QR involved.
+    // Pick people and grant them the farm.
     // Anyone who already holds access may pass it on, capped at what they hold.
     Route::get('/farmers/search', [FarmAccessController::class, 'searchFarmers']);
     Route::get('/farm/{farm}/members', [FarmAccessController::class, 'members']);
     Route::post('/farm/{farm}/members', [FarmAccessController::class, 'addMembers']);
     Route::post('/members/{member}/revoke', [FarmAccessController::class, 'revokeMember']);
-
-    // Scanner side: two-step redeem (resolve QR, then confirm PIN).
-    // Authenticated so the grant records *which* farmer redeemed it — that id
-    // is what later grants them sight of the farm.
-    Route::post('/access/redeem', [FarmAccessController::class, 'redeem']);
-    Route::post('/access/verify-pin', [FarmAccessController::class, 'verifyPin']);
 });
-//farm access (QR + PIN) end
+//farm access end
 
 Route::prefix('farmer')->group(function () {
     // 👇 New Login route (alias of sendOtp)

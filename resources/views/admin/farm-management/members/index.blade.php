@@ -14,9 +14,9 @@
             </nav>
         </div>
 
-        {{-- An access code is an invitation; a membership is the access itself.
-             Someone who was picked directly by an owner never has a code, so
-             this is the only list that shows everyone who can open a farm. --}}
+        {{-- A membership IS the access — this is the table the server consults when
+             deciding who may open a farm, and the only list that shows
+             everyone who can. --}}
         <div class="card mb-4">
             <div class="card-body">
                 <form method="GET" class="form-row align-items-end">
@@ -105,7 +105,7 @@
                                         </td>
                                         <td>
                                             <span class="small">
-                                                {{ $member->grant_id ? 'Scanned code #' . $member->grant_id : 'Added directly' }}
+                                                Added directly
                                             </span>
                                         </td>
                                         <td>

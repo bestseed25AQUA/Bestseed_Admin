@@ -138,9 +138,6 @@
                     <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.team') ? 'active' : '' }}">
                         <a class="nav-link" href="{{ route('farm-management.team.index') }}">Managers &amp; Partners</a>
                     </li>
-                    <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.grants') ? 'active' : '' }}">
-                        <a class="nav-link" href="{{ route('farm-management.grants.index') }}">Access Codes (QR)</a>
-                    </li>
                     <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.members') ? 'active' : '' }}">
                         <a class="nav-link" href="{{ route('farm-management.members.index') }}">Who Has Access</a>
                     </li>

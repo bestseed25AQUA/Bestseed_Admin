@@ -15,7 +15,6 @@ class FarmAccessMember extends Model
     protected $fillable = [
         'farm_id',
         'farmer_id',
-        'grant_id',
         'granted_by',
         'manager_id',
         'role',
@@ -66,11 +65,6 @@ class FarmAccessMember extends Model
     public function grantedBy()
     {
         return $this->belongsTo(Farmer::class, 'granted_by');
-    }
-
-    public function grant()
-    {
-        return $this->belongsTo(FarmAccessGrant::class, 'grant_id');
     }
 
     public function isLive(): bool

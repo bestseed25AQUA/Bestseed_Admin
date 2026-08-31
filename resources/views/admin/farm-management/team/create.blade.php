@@ -27,9 +27,10 @@
 
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle mr-1"></i>
-                    Adding someone here records their access. To let them actually open the farm in the
-                    app, issue an <a href="{{ route('farm-management.grants.index') }}">access code</a>
-                    for them to scan.
+                    Adding someone here records them on the team. To let them actually open the farm in
+                    the app, give them access from
+                    <a href="{{ route('farm-management.members.index') }}">Who Has Access</a>,
+                    or from the farm's own page.
                 </div>
 
                 <form action="{{ route('farm-management.team.store') }}" method="POST">

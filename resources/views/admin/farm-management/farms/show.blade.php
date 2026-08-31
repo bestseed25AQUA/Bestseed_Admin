@@ -47,7 +47,6 @@
                         <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#tab-details">Details</a></li>
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-tanks">Tanks ({{ $tanks->count() }})</a></li>
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-team">Managers &amp; Partners ({{ $team->count() }})</a></li>
-                        <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-codes">Access Codes ({{ $grants->count() }})</a></li>
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-members">Who Has Access ({{ $members->count() }})</a></li>
                     </ul>
 
@@ -305,118 +304,7 @@
                                                             method="POST" class="d-inline confirm-form">
                                                             @csrf @method('DELETE')
                                                             <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
-                                                                data-confirm="They lose access immediately, and the QR code that created them is revoked.">
-                                                                <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </form>
-                                                    @endpermission
-                                                </td>
-                                            </tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
-                            </div>
-                        @endif
-                    </div>
-
-                    {{-- ----------------------------------------------- Access Codes --}}
-                    <div class="tab-pane fade" id="tab-codes">
-                        @permission('farm-management.create')
-                            <button class="btn btn-sm btn-primary mb-3" data-toggle="collapse" data-target="#generateCode">
-                                <i class="fas fa-qrcode mr-1"></i> Generate Access Code
-                            </button>
-
-                            <div class="collapse mb-4" id="generateCode">
-                                <div class="card card-body bg-light">
-                                    <form action="{{ route('farm-management.grants.store') }}" method="POST">
-                                        @csrf
-                                        <input type="hidden" name="farm_id" value="{{ $farm->id }}">
-
-                                        <div class="row">
-                                            <div class="col-md-4 form-group">
-                                                <label>Role</label>
-                                                <select name="role" class="form-control" required>
-                                                    <option value="manager">Manager</option>
-                                                    <option value="partner">Partner</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-4 form-group">
-                                                <label>Valid for (days)</label>
-                                                <input type="number" name="duration_days" class="form-control"
-                                                    min="1" max="365" value="30" required>
-                                            </div>
-                                            <div class="col-md-4 form-group">
-                                                <label>4-digit PIN</label>
-                                                <input type="text" name="pin" class="form-control"
-                                                    pattern="\d{4}" maxlength="4" placeholder="e.g. 1234" required>
-                                                <small class="text-muted">The scanner must type this after scanning.</small>
-                                            </div>
-                                        </div>
-
-                                        <label class="d-block"><strong>What they may do</strong></label>
-                                        @include('admin.farm-management.partials._permissions', ['values' => ['view_access' => 1]])
-
-                                        <button type="submit" class="btn btn-primary mt-2">
-                                            <i class="fas fa-qrcode mr-1"></i> Generate
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        @endpermission
-
-                        @if ($grants->isEmpty())
-                            <p class="text-muted mb-0">No access codes have been issued for this farm.</p>
-                        @else
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>ID</th><th>Role</th><th>Status</th><th>PIN</th>
-                                            <th>Permissions</th><th>Expires</th><th>Redeemed By</th>
-                                            <th class="text-center">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach ($grants as $grant)
-                                            <tr>
-                                                <td>{{ $grant->id }}</td>
-                                                <td><span class="badge bg-{{ $grant->role === 'partner' ? 'secondary' : 'info' }}">{{ ucfirst($grant->role) }}</span></td>
-                                                <td>@include('admin.farm-management.partials._grant-status', ['grant' => $grant])</td>
-                                                <td><code>{{ $grant->pin() ?? '—' }}</code></td>
-                                                <td>@include('admin.farm-management.partials._permission-badges', ['row' => $grant])</td>
-                                                <td>
-                                                    {{ optional($grant->expires_at)->format('d M Y') ?? '—' }}
-                                                    <small class="d-block text-muted">{{ $grant->daysRemaining() }} days left</small>
-                                                </td>
-                                                <td>{{ $grant->manager->name ?? '—' }}</td>
-                                                <td class="text-center">
-                                                    <button class="btn btn-sm btn-info btn-action show-qr"
-                                                        data-token="{{ $grant->token }}" data-grant="{{ $grant->id }}"
-                                                        title="Show QR">
-                                                        <i class="fas fa-qrcode"></i>
-                                                    </button>
-
-                                                    @permission('farm-management.update')
-                                                        @if (!$grant->revoked_at)
-                                                            <form action="{{ route('farm-management.grants.revoke', $grant->id) }}"
-                                                                method="POST" class="d-inline confirm-form">
-                                                                @csrf
-                                                                <button type="button" class="btn btn-sm btn-warning btn-action confirm-btn"
-                                                                    data-confirm="The holder loses access immediately. The record is kept for audit."
-                                                                    title="Revoke">
-                                                                    <i class="fas fa-ban"></i>
-                                                                </button>
-                                                            </form>
-                                                        @endif
-                                                    @endpermission
-
-                                                    @permission('farm-management.delete')
-                                                        <form action="{{ route('farm-management.grants.destroy', $grant->id) }}"
-                                                            method="POST" class="d-inline confirm-form">
-                                                            @csrf @method('DELETE')
-                                                            <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
-                                                                data-confirm="The code is deleted permanently, with no audit trail."
-                                                                title="Delete">
+                                                                data-confirm="They lose access to this farm immediately.">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </form>
@@ -431,11 +319,11 @@
                     </div>
 
                     {{-- ------------------------------------------- Who Has Access --}}
-                    {{-- A grant is an invitation; a membership is the access
-                         itself. People arrive here either by scanning a QR and
-                         passing its PIN, or by being picked directly — only the
-                         first leaves a grant row, so this is the only complete
-                         picture of who can open the farm. --}}
+                    {{-- A membership IS the access — this is the table the
+                         server consults when deciding who may open the farm.
+                         People get here by being picked directly, now the only
+                         way in; the QR + PIN flow that also used to land people
+                         here has been removed. --}}
                     <div class="tab-pane fade" id="tab-members">
                         @permission('farm-management.create')
                             <button class="btn btn-sm btn-primary mb-3" data-toggle="collapse" data-target="#addMembers">
@@ -462,7 +350,7 @@
                                                 </select>
                                                 <small class="text-muted">
                                                     Hold Ctrl (Cmd on Mac) to pick several. They get access straight
-                                                    away — no QR, no PIN.
+                                                    away.
                                                 </small>
                                                 <small class="text-muted d-block" id="memberFilterCount"></small>
                                             </div>
@@ -494,8 +382,8 @@
 
                         @if ($members->isEmpty())
                             <p class="text-muted mb-0">
-                                Nobody holds access to this farm yet. Generate an access code for someone to
-                                scan, or give access directly above.
+                                Nobody holds access to this farm yet. Give someone access using the button
+                                above.
                             </p>
                         @else
                             <div class="table-responsive">
@@ -525,11 +413,7 @@
                                                     </span>
                                                 </td>
                                                 <td>
-                                                    @if ($member->grant_id)
-                                                        <span class="small">Scanned code #{{ $member->grant_id }}</span>
-                                                    @else
-                                                        <span class="small">Added directly</span>
-                                                    @endif
+                                                    <span class="small">Added directly</span>
                                                     @if ($member->grantedBy)
                                                         <div class="small text-muted">
                                                             by {{ trim($member->grantedBy->first_name . ' ' . $member->grantedBy->last_name) ?: 'Farmer #' . $member->granted_by }}
@@ -635,7 +519,6 @@
         </div>
     </div>
 
-    @include('admin.farm-management.partials._qr-modal')
 @endsection
 
 @push('scripts')
@@ -681,5 +564,4 @@
     </script>
 
     @include('admin.farm-management.partials._table-scripts', ['entity' => 'records'])
-    @include('admin.farm-management.partials._qr-script')
 @endpush

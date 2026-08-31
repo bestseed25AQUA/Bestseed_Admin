@@ -43,12 +43,6 @@ class Farm extends Model
         return $this->belongsTo(Farmer::class, 'farmer_id');
     }
 
-    /** Every QR/PIN access code ever issued for this farm. */
-    public function accessGrants()
-    {
-        return $this->hasMany(FarmAccessGrant::class, 'farm_id');
-    }
-
     public function tanks()
     {
         return $this->hasMany(Tank::class, 'farm_id');

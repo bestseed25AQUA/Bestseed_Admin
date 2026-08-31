@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Models\FarmAccessGrant;
 use App\Models\FarmAccessMember;
 
 /**
@@ -11,8 +10,8 @@ use App\Models\FarmAccessMember;
  * There are exactly three ways to hold one of these:
  *
  *   owner()      – the farm's `farmer_id`; every ability, always.
- *   fromGrant()  – a manager/partner who scanned a QR and passed the PIN;
- *                  abilities are whatever the grant stored, nothing more.
+ *   fromMember() – a manager/partner the owner (or another member) gave access
+ *                  to; abilities are whatever the membership row stored.
  *   none()       – everyone else; every ability denied.
  *
  * There is deliberately no "default allow" constructor, so a code path that
@@ -31,7 +30,6 @@ final class FarmPermission
         public readonly bool $edit,
         public readonly bool $create,
         public readonly bool $delete,
-        public readonly ?int $grantId = null,
         public readonly ?string $expiresAt = null,
     ) {
     }
@@ -46,20 +44,7 @@ final class FarmPermission
         return new self(self::ROLE_NONE, false, false, false, false);
     }
 
-    public static function fromGrant(FarmAccessGrant $grant): self
-    {
-        return new self(
-            role: $grant->role === self::ROLE_PARTNER ? self::ROLE_PARTNER : self::ROLE_MANAGER,
-            view: (bool) $grant->view_access,
-            edit: (bool) $grant->edit_access,
-            create: (bool) $grant->create_access,
-            delete: (bool) $grant->delete_access,
-            grantId: $grant->id,
-            expiresAt: optional($grant->expires_at)->toIso8601String(),
-        );
-    }
-
-    /** Built from a membership row — however that member got their access. */
+    /** Built from a membership row — the only way access is held. */
     public static function fromMember(FarmAccessMember $member): self
     {
         return new self(
@@ -68,7 +53,6 @@ final class FarmPermission
             edit: (bool) $member->edit_access,
             create: (bool) $member->create_access,
             delete: (bool) $member->delete_access,
-            grantId: $member->grant_id,
             expiresAt: optional($member->expires_at)->toIso8601String(),
         );
     }
@@ -106,7 +90,6 @@ final class FarmPermission
         return [
             'role'        => $this->role,
             'is_owner'    => $this->isOwner(),
-            'grant_id'    => $this->grantId,
             'expires_at'  => $this->expiresAt,
             'permissions' => [
                 'view'   => $this->view,

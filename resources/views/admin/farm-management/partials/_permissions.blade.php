@@ -1,6 +1,6 @@
 {{--
     The four ability checkboxes shared by the "add team member" form, the edit
-    form, and the access-code generator.
+    form, and the give-access form.
 
     $values — array|object carrying view_access/edit_access/create_access/delete_access
 --}}

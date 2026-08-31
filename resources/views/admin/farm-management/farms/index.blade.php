@@ -59,7 +59,7 @@
                                 <th>Owner</th>
                                 <th>Tanks</th>
                                 <th>Team</th>
-                                <th>Access Codes</th>
+                                <th>Has Access</th>
                                 <th>Stocking Date</th>
                                 <th>Actions</th>
                             </tr>
@@ -99,8 +99,8 @@
                                         <span class="badge bg-secondary">{{ $farm->partners_count }} ptnr</span>
                                     </td>
                                     <td>
-                                        {{ $farm->access_grants_count }}
-                                        <small class="text-muted">({{ $farm->live_grants_count }} live)</small>
+                                        {{ $farm->access_members_count }}
+                                        <small class="text-muted">({{ $farm->live_members_count }} live)</small>
                                     </td>
                                     <td>{{ $farm->stocking_date ?? '-' }}</td>
                                     <td>
@@ -136,7 +136,7 @@
                                                         method="POST" class="d-inline confirm-form ml-1">
                                                         @csrf
                                                         <button type="button" class="btn btn-sm btn-success btn-action confirm-btn"
-                                                            data-confirm="The farm comes back with its team intact. Old access codes stay revoked."
+                                                            data-confirm="The farm comes back with its team intact. Previous access stays revoked."
                                                             title="Restore farm">
                                                             <i class="fas fa-undo"></i>
                                                         </button>
@@ -151,7 +151,7 @@
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
-                                                            data-confirm="The farm is removed from the app and its access codes are revoked. Its team is kept so it can be restored."
+                                                            data-confirm="The farm is removed from the app and everyone’s access is revoked. Its team is kept so it can be restored."
                                                             title="Delete farm">
                                                             <i class="fas fa-trash"></i>
                                                         </button>
@@ -162,7 +162,7 @@
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="button" class="btn btn-sm btn-dark btn-action confirm-btn"
-                                                            data-confirm="Permanent. The farm, its team and every access code are erased and cannot be restored."
+                                                            data-confirm="Permanent. The farm, its team and all access are erased and cannot be restored."
                                                             title="Delete permanently">
                                                             <i class="fas fa-times-circle"></i>
                                                         </button>

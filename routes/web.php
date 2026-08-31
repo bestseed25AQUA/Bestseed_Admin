@@ -24,7 +24,6 @@ use App\Http\Controllers\Auth\AdminOtpController;
 use App\Http\Controllers\Admin\DriverController;
 use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\FarmManagementController;
-use App\Http\Controllers\Admin\FarmAccessGrantController;
 use App\Http\Controllers\Admin\FarmAccessMemberController;
 use App\Http\Controllers\Admin\FarmTankController;
 use App\Http\Controllers\Admin\FarmTeamController;
@@ -171,7 +170,7 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::resource('admin/banners', BannerController::class);
     Route::resource('admin/contacts', ContactController::class);
 
-    // Farm Management — farms, their teams, and QR/PIN access codes.
+    // Farm Management — farms and their teams.
     Route::get('admin/farm-management/farms', [FarmManagementController::class, 'index'])->name('farm-management.farms.index');
     Route::get('admin/farm-management/farms/create', [FarmManagementController::class, 'create'])->name('farm-management.farms.create');
     Route::post('admin/farm-management/farms', [FarmManagementController::class, 'store'])->name('farm-management.farms.store');
@@ -201,19 +200,15 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::put('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'updateFeed'])->name('farm-management.tanks.feed.update');
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}/feed/{history}', [FarmTankController::class, 'destroyFeed'])->name('farm-management.tanks.feed.destroy');
 
-    // Who actually holds access to a farm — QR scanners and directly-assigned
-    // people alike. A grant is the invitation; this is the access itself.
+    // Who actually holds access to a farm. This is the access itself, and now
+    // the only way it is given — the QR/PIN access-code routes that used to
+    // follow are gone along with the flow.
     Route::get('admin/farm-management/members', [FarmAccessMemberController::class, 'index'])->name('farm-management.members.index');
     Route::post('admin/farm-management/farms/{farm}/members', [FarmAccessMemberController::class, 'store'])->name('farm-management.members.store');
     Route::put('admin/farm-management/members/{member}', [FarmAccessMemberController::class, 'update'])->name('farm-management.members.update');
     Route::post('admin/farm-management/members/{member}/revoke', [FarmAccessMemberController::class, 'revoke'])->name('farm-management.members.revoke');
     Route::post('admin/farm-management/members/{member}/restore', [FarmAccessMemberController::class, 'restore'])->name('farm-management.members.restore');
     Route::delete('admin/farm-management/members/{member}', [FarmAccessMemberController::class, 'destroy'])->name('farm-management.members.destroy');
-
-    Route::get('admin/farm-management/access-codes', [FarmAccessGrantController::class, 'index'])->name('farm-management.grants.index');
-    Route::post('admin/farm-management/access-codes', [FarmAccessGrantController::class, 'store'])->name('farm-management.grants.store');
-    Route::post('admin/farm-management/access-codes/{grant}/revoke', [FarmAccessGrantController::class, 'revoke'])->name('farm-management.grants.revoke');
-    Route::delete('admin/farm-management/access-codes/{grant}', [FarmAccessGrantController::class, 'destroy'])->name('farm-management.grants.destroy');
 
     Route::resource('admin/drivers', DriverController::class);
     Route::post('admin/drivers/{driver}/toggle-status', [DriverController::class, 'toggleStatus'])->name('drivers.toggle-status');
