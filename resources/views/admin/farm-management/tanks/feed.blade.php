@@ -6,6 +6,13 @@
             <h3 class="page-title d-flex align-items-center">
                 <i class="fas fa-utensils mr-2"></i>{{ $tank->tank_name }} — Feed Records
             </h3>
+            @permission('farm-management.view')
+                <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}"
+                    class="btn btn-sm btn-outline-primary float-right">
+                    <i class="fas fa-download mr-1"></i> Download CSV
+                </a>
+            @endpermission
+
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
                     <li class="breadcrumb-item"><a href="{{ route('admin') }}"><i class="fas fa-home mr-1"></i> Dashboard</a></li>

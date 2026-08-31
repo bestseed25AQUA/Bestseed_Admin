@@ -18,6 +18,13 @@ class AdminFarmImageUploadTest extends TestCase
 {
     public function test_uploading_photos_stores_urls_the_app_can_read(): void
     {
+        // These exercise admin against real farms, tanks and feed rows, so
+        // they run against the development MySQL database rather than the
+        // suite's in-memory sqlite. Skipped rather than failed elsewhere.
+        if (config('database.default') !== 'mysql') {
+            $this->markTestSkipped('Needs the development MySQL database.');
+        }
+
         $admin  = User::first();
         $farmer = Farmer::first();
 

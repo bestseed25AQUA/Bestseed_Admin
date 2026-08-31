@@ -18,6 +18,13 @@ class AdminFarmManagementSmokeTest extends TestCase
 {
     public function test_every_farm_management_screen_renders(): void
     {
+        // These exercise admin against real farms, tanks and feed rows, so
+        // they run against the development MySQL database rather than the
+        // suite's in-memory sqlite. Skipped rather than failed elsewhere.
+        if (config('database.default') !== 'mysql') {
+            $this->markTestSkipped('Needs the development MySQL database.');
+        }
+
         $admin = User::first();
         $this->assertNotNull($admin, 'No admin user in the database to test with.');
 

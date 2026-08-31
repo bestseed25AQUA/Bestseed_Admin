@@ -9,6 +9,7 @@ use App\Models\Farmer;
 use App\Models\Feed;
 use App\Models\Manager;
 use App\Models\Tank;
+use App\Services\FeedBackfillService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\Validator;
  */
 class FarmManagementController extends Controller
 {
-    public function __construct()
+    public function __construct(private FeedBackfillService $backfill)
     {
         $this->middleware('permission:farm-management.view')->only(['index', 'show']);
         $this->middleware('permission:farm-management.create')->only(['create', 'store']);
@@ -91,9 +92,22 @@ class FarmManagementController extends Controller
 
         try {
             // `images` is a file upload, not a farms column.
-            $farm = Farm::create(collect($validator->validated())->except('images')->all());
+            $farm = Farm::create(collect($validator->validated())->except(['images', 'feed_used_before'])->all());
 
             $this->saveImages($request, $farm);
+
+            // The app creates a farm's tanks with it; admin must too, or the
+            // farmer opens a farm with nowhere to record feed.
+            $tankIds = $this->createTanks($farm, (int) $request->input('no_of_tanks'));
+
+            // A farm stocked weeks ago has history nothing recorded. One
+            // figure spreads across every tank and every day since stocking,
+            // exactly as it does in the app.
+            $this->backfill->apply(
+                $farm,
+                $tankIds,
+                (float) $request->input('feed_used_before', 0)
+            );
 
             Log::info('Admin created farm', ['farm_id' => $farm->id]);
 
@@ -157,9 +171,26 @@ class FarmManagementController extends Controller
         }
 
         try {
-            $farm->update(collect($validator->validated())->except('images')->all());
+            $farm->update(collect($validator->validated())->except(['images', 'feed_used_before'])->all());
 
             $this->saveImages($request, $farm);
+
+            // Only regenerate when the figure actually changed — rebuilding
+            // wipes and rewrites every generated row, and doing that on an
+            // unrelated edit would churn the farm's history for nothing.
+            $entered = $request->filled('feed_used_before')
+                ? (float) $request->input('feed_used_before')
+                : null;
+
+            if ($entered !== null && (float) ($farm->feed_used_before ?? 0) !== $entered) {
+                $this->backfill->clear($farm);
+
+                $this->backfill->apply(
+                    $farm->fresh(),
+                    Tank::where('farm_id', $farm->id)->pluck('id')->all(),
+                    $entered
+                );
+            }
 
             return redirect()->route('farm-management.farms.show', $farm->id)
                 ->with('success', 'Farm updated successfully.');
@@ -313,6 +344,31 @@ class FarmManagementController extends Controller
         );
     }
 
+    /**
+     * Create a farm's tanks, named the way the app names them.
+     *
+     * Returns the new tank ids so a feed backfill can be spread across them.
+     */
+    private function createTanks(Farm $farm, int $count): array
+    {
+        if ($count < 1) {
+            return [];
+        }
+
+        $ids = [];
+
+        for ($i = 1; $i <= $count; $i++) {
+            $ids[] = Tank::create([
+                'farm_id'       => $farm->id,
+                'tank_name'     => 'Tank' . $i,
+                'status'        => 1,
+                'stocking_date' => $farm->stocking_date,
+            ])->id;
+        }
+
+        return $ids;
+    }
+
     private function rules(): array
     {
         return [
@@ -323,6 +379,7 @@ class FarmManagementController extends Controller
             'no_of_tanks'    => 'nullable|integer|min:0',
             'store'          => 'nullable|numeric|min:0',
             'low_feed_limit' => 'nullable|numeric|min:0',
+            'feed_used_before' => 'nullable|numeric|min:0',
             'images'         => 'nullable|array|max:2',
             'images.*'       => 'image|mimes:jpg,jpeg,png,webp|max:5120',
         ];
