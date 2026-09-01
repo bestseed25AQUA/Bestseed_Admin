@@ -9,9 +9,10 @@ use App\Models\Farmer;
 use App\Models\Farm;
 use App\Services\FeedBackfillService;
 use App\Models\Tank;
+use App\Models\TankBatch;
 use App\Models\Feed;
 use App\Models\TankFeedHistory;
-use Carbon\Carbon; 
+use Carbon\Carbon;
 use App\Models\User;
 use App\Models\Manager;
 use App\Models\PushNotification;
@@ -103,7 +104,13 @@ class FarmController extends Controller
 
                 // Keep the tank's running total honest.
                 Tank::where('id', $history->tank_id)->update([
+                    // The CURRENT crop's total, matching what the app shows —
+                    // a finished batch's feed is not part of it.
                     'total_feed_used' => (float) Feed::where('tank_id', $history->tank_id)
+                        ->when(
+                            $history->batch_id,
+                            fn ($q) => $q->where('batch_id', $history->batch_id)
+                        )
                         ->sum('feed_quantity'),
                 ]);
             });
@@ -174,7 +181,13 @@ class FarmController extends Controller
                 $history->delete();
 
                 Tank::where('id', $history->tank_id)->update([
+                    // The CURRENT crop's total, matching what the app shows —
+                    // a finished batch's feed is not part of it.
                     'total_feed_used' => (float) Feed::where('tank_id', $history->tank_id)
+                        ->when(
+                            $history->batch_id,
+                            fn ($q) => $q->where('batch_id', $history->batch_id)
+                        )
                         ->sum('feed_quantity'),
                 ]);
             });
@@ -258,6 +271,194 @@ class FarmController extends Controller
         app(FeedBackfillService::class)->apply($farm, $tankIds, $totalUsed);
     }
 
+    /**
+     * Apply edits to tanks the farm already has.
+     *
+     * Each entry is `{id, stocking_date, feed_used_before}`. A tank whose date
+     * or figure has changed has its GENERATED history rewritten: the old
+     * is_backfill rows go and new ones are written from the new values. Feed
+     * the farmer recorded by hand is never touched — it carries no backfill
+     * mark — so correcting a stocking date does not cost them their entries.
+     *
+     * Ids not belonging to this farm are ignored rather than refused, so a
+     * stale form cannot reach into another farmer's tanks.
+     *
+     * @return int  how many tanks were changed
+     */
+    private function updateExistingTanks(Request $request, Farm $farm): int
+    {
+        $decoded = json_decode((string) $request->input('existing_tanks_meta', ''), true);
+
+        if (!is_array($decoded) || empty($decoded)) {
+            return 0;
+        }
+
+        $tanks = Tank::where('farm_id', $farm->id)->get()->keyBy('id');
+        $backfill = app(FeedBackfillService::class);
+        $today = Carbon::now()->startOfDay();
+        $changed = 0;
+
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $tank = $tanks->get((int) ($row['id'] ?? 0));
+            if (!$tank) {
+                continue;
+            }
+
+            // Same parsing as a new tank: a future date is treated as unset
+            // rather than generating history that has not happened.
+            $date = null;
+            if (!empty($row['stocking_date'])) {
+                try {
+                    $parsed = Carbon::parse($row['stocking_date'])->startOfDay();
+                    $date = $parsed->greaterThan($today) ? null : $parsed->toDateString();
+                } catch (\Throwable $e) {
+                    $date = null;
+                }
+            }
+
+            $used = (float) ($row['feed_used_before'] ?? 0);
+            $used = $used > 0 ? $used : 0.0;
+
+            $oldDate = $tank->stocking_date
+                ? Carbon::parse($tank->stocking_date)->toDateString()
+                : null;
+            $oldUsed = $backfill->backfilledTotalFor((int) $tank->id);
+
+            $dateChanged = $oldDate !== $date;
+            $usedChanged = abs($oldUsed - $used) > 0.001;
+
+            if (!$dateChanged && !$usedChanged) {
+                continue;
+            }
+
+            $tank->stocking_date = $date;
+            $tank->save();
+
+            // Rewrite, not append.
+            $backfill->clearForTank((int) $tank->id);
+            $backfill->applyForTank($farm, (int) $tank->id, $date, $used);
+
+            $changed++;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Append tanks to a farm, each with its own stocking date and prior feed.
+     *
+     * Numbered on from the highest existing tank, so a farm with Tank1..Tank5
+     * gains Tank6 — the new one lands after the last, not renumbered among
+     * them. Existing tanks are never touched: their dates and their history
+     * stay exactly as they are.
+     *
+     * @param  array<int, array{stocking_date: ?string, feed_used_before: float}>  $meta
+     * @return int  how many tanks were created
+     */
+    private function appendTanks(Farm $farm, array $meta): int
+    {
+        if (empty($meta)) {
+            return 0;
+        }
+
+        // The highest number already in use, not the row count: a farm that
+        // has had a tank deleted would otherwise reuse a name still sitting in
+        // its feed history.
+        $highest = 0;
+        foreach (Tank::where('farm_id', $farm->id)->pluck('tank_name') as $name) {
+            if (preg_match('/(\d+)\s*$/', (string) $name, $m)) {
+                $highest = max($highest, (int) $m[1]);
+            }
+        }
+
+        $highest = max($highest, (int) Tank::where('farm_id', $farm->id)->count());
+
+        $backfill = app(FeedBackfillService::class);
+        $created  = 0;
+
+        foreach ($meta as $row) {
+            $tank = new Tank();
+            $tank->tank_name = 'Tank' . (++$highest);
+            $tank->farm_id = $farm->id;
+            $tank->total_feed_used = 0;
+            $tank->status = 1;
+            $tank->stocking_date = $row['stocking_date'];
+            $tank->save();
+
+            // Same flow as a tank created with the farm: a past stocking date
+            // gets its own history generated, one row per meal.
+            $backfill->applyForTank(
+                $farm,
+                $tank->id,
+                $row['stocking_date'],
+                $row['feed_used_before']
+            );
+
+            $created++;
+        }
+
+        return $created;
+    }
+
+    /**
+     * Per-tank stocking dates and prior feed, one entry per tank.
+     *
+     * The app posts `tanks_meta` as a JSON array — a multipart form cannot
+     * carry nested arrays cleanly — shaped
+     * `[{"stocking_date":"2026-08-20","feed_used_before":"450"}, ...]`.
+     *
+     * Returns exactly [$tankCount] entries: short input is padded with a null
+     * date so a malformed payload cannot silently create fewer tanks than the
+     * farmer asked for, and extra entries are ignored.
+     *
+     * @return array<int, array{stocking_date: ?string, feed_used_before: float}>
+     */
+    private function tanksMetaFrom(
+        Request $request,
+        int $tankCount,
+        string $field = 'tanks_meta'
+    ): array {
+        if ($tankCount <= 0) {
+            return [];
+        }
+
+        $decoded = json_decode((string) $request->input($field, ''), true);
+        $decoded = is_array($decoded) ? $decoded : [];
+
+        $today = Carbon::now()->startOfDay();
+        $meta  = [];
+
+        for ($i = 0; $i < $tankCount; $i++) {
+            $row  = is_array($decoded[$i] ?? null) ? $decoded[$i] : [];
+            $date = null;
+
+            if (!empty($row['stocking_date'])) {
+                try {
+                    $parsed = Carbon::parse($row['stocking_date'])->startOfDay();
+                    // A tank cannot have been stocked in the future; treat one
+                    // as unset rather than generating history that has not
+                    // happened.
+                    $date = $parsed->greaterThan($today) ? null : $parsed->toDateString();
+                } catch (\Throwable $e) {
+                    $date = null;
+                }
+            }
+
+            $used = (float) ($row['feed_used_before'] ?? 0);
+
+            $meta[] = [
+                'stocking_date'    => $date,
+                'feed_used_before' => $used > 0 ? $used : 0.0,
+            ];
+        }
+
+        return $meta;
+    }
+
 
     /** A manager/partner row sitting on one of the caller's farms, or abort. */
     private function ownedTeamMember(Request $request, $memberId): Manager
@@ -296,8 +497,15 @@ class FarmController extends Controller
                 // Validation for form type
                 $validator = Validator::make($request->all(), [
                     'farm_name' => 'required|string|max:255',
-                    'stocking_date' => 'required|date',
+                    // Optional now: the app sends a date per TANK in
+                    // `tanks_meta` and the farm's own date is derived from the
+                    // earliest of them. Older clients still send this one.
+                    'stocking_date' => 'nullable|date|before_or_equal:today',
                     'tanks' => 'required|integer|min:1',
+                    // Per-tank stocking dates and prior feed, as a JSON array
+                    // of {stocking_date, feed_used_before}. Validated after
+                    // decoding, in tanksMetaFrom().
+                    'tanks_meta' => 'nullable|string',
                     // Optional: a farmer setting a farm up before any feed has
                     // been delivered has no stock figure to give yet. The
                     // column is already nullable, and they can fill it in
@@ -394,11 +602,25 @@ class FarmController extends Controller
                 }
                 //multiple farm image upload end
                 // dd($image);
+                $tanksMeta = $this->tanksMetaFrom($request, (int) $request->input('tanks'));
+
+                // The farm's own date is the EARLIEST of its tanks'.
+                //
+                // Tanks each carry their own stocking date now, but plenty of
+                // things still read the farm's — reports, the admin panel, the
+                // low-feed check — so it has to stay meaningful. The earliest
+                // is the day the farm started operating. Falls back to whatever
+                // an older client posted.
+                $tankDates = array_filter(array_column($tanksMeta, 'stocking_date'));
+                $farmStockingDate = !empty($tankDates)
+                    ? min($tankDates)
+                    : $request->input('stocking_date');
+
                 // Create Farm Record
                 $farm = Farm::create([
                     'farm_name' => $request->input('farm_name'),
                     'farmer_id' => $request->user()->id,
-                    'stocking_date' => $request->input('stocking_date'),
+                    'stocking_date' => $farmStockingDate,
                     'no_of_tanks' => $request->input('tanks'),
                     // Blank means "not known yet", stored as NULL rather than
                     // the empty string the form posts. `store` is a string
@@ -414,28 +636,47 @@ class FarmController extends Controller
                     FarmImage::create(['farm_id'=>$farm->id, 'images' => json_encode($imagePaths)]);
 
                     //also create no of tanks i/p at farm create
+                    //
+                    // Each tank carries its OWN stocking date and its own prior
+                    // feed. Tanks are stocked as ponds are prepared, not all on
+                    // one day, and the old code left tanks.stocking_date NULL
+                    // and dated the whole farm from a single field.
                     $tankIds = [];
-                    for($i=1; $i <= $request->input('tanks'); $i++){
+                    foreach ($tanksMeta as $i => $row) {
                         $tank = new Tank();
-                        $tank->tank_name = 'Tank'.$i;
+                        $tank->tank_name = 'Tank' . ($i + 1);
                         $tank->farm_id = $farm->id;
                         $tank->total_feed_used = 0; //initially at time of create farm
                         $tank->status = 1;
+                        $tank->stocking_date = $row['stocking_date'];
                         $tank->save();
                         $tankIds[] = $tank->id;
-
                     }
 
-                    // Farm stocked on a past date: spread the feed already used
-                    // across the tanks and the days that have passed, so the
-                    // tank history is not blank for a farm that has been running
-                    // for weeks.
-                    $this->backfillPastFeed(
-                        $farm,
-                        $tankIds,
-                        (float) $request->input('feed_used_before', 0)
-                    );
+                    // Tank stocked on a past date: spread that tank's own
+                    // "already used" figure across its own days, one row per
+                    // meal, so its history is not blank for a tank that has
+                    // been running for weeks.
+                    //
+                    // Deliberately NOT deducted from `store`: the store is the
+                    // stock on hand from now on, and feed consumed before the
+                    // farm was registered never passed through it.
+                    $backfill = app(FeedBackfillService::class);
+                    foreach ($tanksMeta as $i => $row) {
+                        $backfill->applyForTank(
+                            $farm,
+                            $tankIds[$i],
+                            $row['stocking_date'],
+                            $row['feed_used_before']
+                        );
+                    }
 
+                    // What the farmer entered, kept so the edit form can show
+                    // it back — the sum across tanks.
+                    $enteredBefore = array_sum(array_column($tanksMeta, 'feed_used_before'));
+                    if ($enteredBefore > 0) {
+                        $farm->forceFill(['feed_used_before' => $enteredBefore])->save();
+                    }
                 }
 
                // dd($farm); 
@@ -481,7 +722,19 @@ class FarmController extends Controller
             $farms = $farms->map(function ($farm) use ($permissions) {
                 $farm->active_tanks    = Tank::where('status', 1)->where('farm_id', $farm->id)->count();
                 $farm->inactive_tanks  = Tank::where('status', 0)->where('farm_id', $farm->id)->count();
-                $farm->total_feed_used = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
+
+                // Only tanks with a RUNNING batch count.
+                //
+                // Deactivating a tank finishes its crop, and a finished crop's
+                // feed is history — it drops out of the farm's Total Feed Used
+                // rather than inflating it for ever. The rows stay put; they
+                // are simply no longer part of what is in progress.
+                $farm->total_feed_used = Feed::where('farm_id', $farm->id)
+                    ->whereIn(
+                        'batch_id',
+                        TankBatch::where('farm_id', $farm->id)->open()->pluck('id')
+                    )
+                    ->sum('feed_quantity');
 
                 // Lets the app hide edit/delete buttons for a partner who only
                 // holds view access, instead of finding out via a 403.
@@ -514,6 +767,13 @@ class FarmController extends Controller
             'farm_name'      => 'required|string|max:255',
             'stocking_date'  => 'nullable|date',
             'no_of_tanks'    => 'nullable|integer|min:0',
+            // Tanks being added, as a JSON array of
+            // {stocking_date, feed_used_before}. Decoded and validated in
+            // tanksMetaFrom(); a multipart form cannot carry nested arrays.
+            'new_tanks_meta' => 'nullable|string',
+            // Corrections to tanks the farm already has, as a JSON array of
+            // {id, stocking_date, feed_used_before}.
+            'existing_tanks_meta' => 'nullable|string',
             // Optional here for the same reason as on create — and because an
             // edit that only changes the farm name should not force the farmer
             // to invent a stock figure.
@@ -557,8 +817,38 @@ class FarmController extends Controller
             if ($request->has('stocking_date')) {
                 $farm->stocking_date = $request->input('stocking_date');
             }
-            if ($request->has('no_of_tanks')) {
-                $farm->no_of_tanks = $request->input('no_of_tanks');
+            // Tanks being ADDED, each with its own stocking date and prior
+            // feed. Editing has never created tanks — it only wrote the count
+            // to the farm — so raising "No. of Tanks" from 5 to 6 changed a
+            // number and nothing else: no sixth tank ever appeared.
+            //
+            // Only additions are accepted. Lowering the count would mean
+            // destroying a tank along with every feed row recorded against it,
+            // which an edit form should not do silently.
+            $newTanks = $this->tanksMetaFrom(
+                $request,
+                count(json_decode((string) $request->input('new_tanks_meta', ''), true) ?: []),
+                'new_tanks_meta'
+            );
+
+            $addedTanks = $this->appendTanks($farm, $newTanks);
+
+            // Corrections to the tanks the farm already has.
+            $this->updateExistingTanks($request, $farm);
+
+            // Keep the count honest — it is what the app shows and what the
+            // next edit starts from.
+            $farm->no_of_tanks = Tank::where('farm_id', $farm->id)->count();
+
+            // The farm's own date follows its tanks — the earliest of them.
+            // Correcting a tank's stocking date has to move it, or the farm
+            // still claims to have started on a day none of its tanks did.
+            $earliest = Tank::where('farm_id', $farm->id)
+                ->whereNotNull('stocking_date')
+                ->min('stocking_date');
+
+            if ($earliest) {
+                $farm->stocking_date = Carbon::parse($earliest)->toDateString();
             }
             if ($request->has('store')) {
                 $farm->store = $this->nullIfBlank($request->input('store'));
@@ -653,7 +943,9 @@ class FarmController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Farm updated successfully',
+                'message' => $addedTanks > 0
+                    ? 'Farm updated. ' . $addedTanks . ' tank(s) added.'
+                    : 'Farm updated successfully',
                 'data' => $farm,
                 //'farm_files' => $farm_images->images,
                 //'farm_files' => $farm->images->images,
@@ -854,11 +1146,17 @@ public function addTodaysQuantity(Request $request){
                 $previousQuantity = $feed->feed_quantity ?? null;
 
             }
+            // The crop cycle this feed belongs to. Without it the row would be
+            // orphaned and disappear from the tank, which reads its history by
+            // batch.
+            $currentBatchId = optional(TankBatch::currentFor((int) $tank_id))->id;
+
             $feed->meals = $request->meals;
             $feed->feed_quantity = $request->feed_quantity;
             //$feed->feed_date = date('Y-m-d h:i:s');
             $feed->feed_date = $feed_date;
             $feed->tank_id = $tank_id;
+            $feed->batch_id = $currentBatchId;
             $feed->farm_id = $farm_id;
             $feed->save();
 
@@ -885,6 +1183,7 @@ public function addTodaysQuantity(Request $request){
                // $tank_feed_history->feed_date = date('Y-m-d h:i:s');
                 $tank_feed_history->feed_date = $feed_date;
                 $tank_feed_history->tank_id = $tank_id;
+                $tank_feed_history->batch_id = $currentBatchId;
                 $tank_feed_history->farm_id = $farm_id;
                 $tank_feed_history->save();
                 //if feed is there created feed history end
@@ -893,7 +1192,11 @@ public function addTodaysQuantity(Request $request){
                 // Recording feed used to leave this column untouched, so a tank
                 // fed every day still reported "0 Kgs" on the farm detail card.
                 Tank::where('id', $tank_id)->update([
-                    'total_feed_used' => (float) Feed::where('tank_id', $tank_id)->sum('feed_quantity'),
+                    // Scoped to the current crop, so the column means the same
+                    // thing the app shows rather than the tank's whole life.
+                    'total_feed_used' => (float) Feed::where('tank_id', $tank_id)
+                        ->when($currentBatchId, fn ($q) => $q->where('batch_id', $currentBatchId))
+                        ->sum('feed_quantity'),
                 ]);
 
             
@@ -953,19 +1256,26 @@ public function addTodaysQuantity(Request $request){
                             'errors' => $validator->errors()
                         ], 422);
                 }
+                $currentBatchId = optional(TankBatch::currentFor((int) $tank_id))->id;
+
                 //now update tank feed. (note: feed - user will be update feed after excpiry date of editing feed)
                 $feed= Feed::where('id',$feed_id)->first();
                 $feed->meals = $request->meals;
                 $feed->feed_quantity = $request->feed_quantity;
                 $feed->feed_date = date('Y-m-d h:i:s');
                 $feed->tank_id = $tank_id;
+                $feed->batch_id = $feed->batch_id ?: $currentBatchId;
                 $feed->farm_id = $farm_id;
                 $feed->save();
 
                 // Same reason as addTodaysQuantity: keep the tank's running
                 // total in step with its rows.
                 Tank::where('id', $tank_id)->update([
-                    'total_feed_used' => (float) Feed::where('tank_id', $tank_id)->sum('feed_quantity'),
+                    // Scoped to the current crop, so the column means the same
+                    // thing the app shows rather than the tank's whole life.
+                    'total_feed_used' => (float) Feed::where('tank_id', $tank_id)
+                        ->when($currentBatchId, fn ($q) => $q->where('batch_id', $currentBatchId))
+                        ->sum('feed_quantity'),
                 ]);
 
                 if($feed){
@@ -996,7 +1306,12 @@ public function addTodaysQuantity(Request $request){
         //tanks.id=1 abhi ke liye lo
         $validator = Validator::make($request->all(), [
             'tank_id' => 'required|exists:tanks,id',
-            'status' => 'required|in:0,1'
+            'status' => 'required|in:0,1',
+            // Only read when ACTIVATING: a fresh crop needs a date to count
+            // its days from, and — if it went in before today — the feed it
+            // has already had.
+            'stocking_date'    => 'nullable|date|before_or_equal:today',
+            'feed_used_before' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -1008,15 +1323,77 @@ public function addTodaysQuantity(Request $request){
         }
 
         $tank = Tank::find($request->tank_id);
-        $tank->status = $request->status;
-        $tank->save();
+        $activating = (int) $request->status === 1;
 
-        $message = $request->status == 1 ? 'Tank activated successfully' : 'Tank deactivated successfully';
+        // Activating and deactivating are the two ends of a CROP CYCLE, not
+        // just a flag.
+        //
+        // A tank is stocked, fed for weeks, harvested, and stocked again. This
+        // used to flip `tanks.status` and nothing else, so the second crop
+        // piled onto the first: the running total kept climbing from where the
+        // last one finished and the day count never restarted.
+        DB::transaction(function () use ($request, $tank, $activating) {
+            $open = TankBatch::openFor((int) $tank->id);
+
+            if ($activating) {
+                // Already running: nothing to start.
+                if (!$open) {
+                    $stockingDate = $request->filled('stocking_date')
+                        ? Carbon::parse($request->input('stocking_date'))->toDateString()
+                        : Carbon::now()->toDateString();
+
+                    $usedBefore = (float) $request->input('feed_used_before', 0);
+
+                    $lastNo = (int) TankBatch::where('tank_id', $tank->id)->max('batch_no');
+
+                    $batch = TankBatch::create([
+                        'tank_id'          => $tank->id,
+                        'farm_id'          => $tank->farm_id,
+                        'batch_no'         => $lastNo + 1,
+                        'stocking_date'    => $stockingDate,
+                        'feed_used_before' => $usedBefore > 0 ? $usedBefore : null,
+                        'started_at'       => now(),
+                        'ended_at'         => null,
+                    ]);
+
+                    // The tank's own date follows its current crop, so the day
+                    // count and the meal schedule start again.
+                    $tank->stocking_date = $stockingDate;
+
+                    // Stocked before today: build the history for the days
+                    // that have already passed, exactly as a new tank does.
+                    if ($usedBefore > 0) {
+                        $farm = Farm::find($tank->farm_id);
+                        if ($farm) {
+                            app(FeedBackfillService::class)->applyForTank(
+                                $farm,
+                                (int) $tank->id,
+                                $stockingDate,
+                                $usedBefore,
+                                (int) $batch->id
+                            );
+                        }
+                    }
+                }
+            } elseif ($open) {
+                // Harvested. The batch closes and keeps its rows; the tank's
+                // totals fall to zero because nothing is running in it.
+                $open->ended_at = now();
+                $open->save();
+            }
+
+            $tank->status = $request->status;
+            $tank->save();
+        });
+
+        $message = $activating
+            ? 'Tank activated. A new batch has started.'
+            : 'Tank deactivated. This batch is finished.';
 
         return response()->json([
             'status' => true,
             'message' => $message,
-            'data' => $tank
+            'data' => $tank->fresh(),
         ], 200);
 
     } catch (\Exception $e) {
@@ -1150,9 +1527,28 @@ public function addTodaysQuantity(Request $request){
                 // first — so a tank fed six times on one day reported 6 days
                 // instead of 1. Counting distinct dates directly is what was
                 // meant.
+                // The crop cycle this tank is on: the open one, or the last
+                // finished one while the tank sits inactive. EVERYTHING below
+                // is scoped to it, so a second crop starts from nothing
+                // instead of carrying the first one's totals.
+                $batch = TankBatch::currentFor((int) $Tank->id);
+                $batchId = $batch?->id;
+
+                $Tank->batch_id = $batchId;
+                $Tank->batch_no = $batch?->batch_no;
+                $Tank->batch_active = $batch ? $batch->isOpen() : false;
+                $Tank->batch_ended_at = optional($batch?->ended_at)->toIso8601String();
+
                 $total_feeds_added_till_date = TankFeedHistory::where('tank_id', $Tank->id)
+                                ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
                                 ->distinct()
                                 ->count(DB::raw('DATE(feed_date)'));
+
+                // This batch's running total, not the tank's lifetime figure.
+                $Tank->total_feed_used = (float) Feed::where('tank_id', $Tank->id)
+                    ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
+                    ->sum('feed_quantity');
+
                 $Tank->feed = $feed;
 
                 // How old the crop is, NOT how many times it was fed.
@@ -1163,11 +1559,35 @@ public function addTodaysQuantity(Request $request){
                 // "Day 24" on the 27th. Age is measured from the stocking
                 // date, whether or not anyone logged feed that day, and the
                 // stocking day itself counts as day 1.
-                $stockingDate = $Tank->stocking_date ?: $farmStockingDate;
+                // The CURRENT batch's date first: a tank on its second crop is
+                // as old as that crop, not as old as the tank.
+                $stockingDate = optional($batch?->stocking_date)->toDateString()
+                    ?: ($Tank->stocking_date ?: $farmStockingDate);
 
                 $Tank->day = $stockingDate
                     ? Carbon::parse($stockingDate)->startOfDay()->diffInDays(now()->startOfDay()) + 1
                     : 0;
+
+                // The date the app should reckon this tank's age from, already
+                // resolved — the tank's own, or the farm's for tanks created
+                // before dates were kept per tank. Sent separately from the raw
+                // `stocking_date` column so the app never has to guess.
+                $Tank->effective_stocking_date = $stockingDate
+                    ? Carbon::parse($stockingDate)->toDateString()
+                    : null;
+
+                // How many meals today calls for, by the same rule the backfill
+                // uses, so the app draws the right number of boxes without
+                // re-deriving the schedule and drifting from the server.
+                $Tank->todays_meal_count = $Tank->day > 0
+                    ? FeedBackfillService::mealsForDay((int) $Tank->day)
+                    : 0;
+
+                // The "already used" figure this tank was set up with, read
+                // back from the rows it generated. The edit form shows it so
+                // the farmer can correct it.
+                $Tank->feed_used_before = app(FeedBackfillService::class)
+                    ->backfilledTotalFor((int) $Tank->id);
 
                 // Kept separate: the number of days feed was actually recorded.
                 $Tank->fed_days = $total_feeds_added_till_date;
@@ -1181,6 +1601,7 @@ public function addTodaysQuantity(Request $request){
                 // today replaced the first on screen instead of joining it.
                 // Feed is given several times a day, so a day is a LIST.
                 $todaysFeed = TankFeedHistory::where('tank_id', $Tank->id)
+                                ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
                                 ->whereDate('feed_date', now()->toDateString())
                                 ->orderBy('id')
                                 ->get(['id', 'meals', 'feed_quantity', 'feed_date']);
@@ -1254,8 +1675,16 @@ public function addTodaysQuantity(Request $request){
             $query->where('farm_id', $farm_id);
         })->get(['id', 'tank_id', 'farm_id', 'feed_quantity', 'meals', 'feed_date']);*/
         
-        //$feeds= Feed::where('tank_id',$tank_id)->get();
-        $feeds= Feed::where('tank_id',$tank_id)
+        // ONE crop cycle, not the tank's whole life.
+        //
+        // This used to dump every feed row the tank had ever carried, so a
+        // report for the batch just harvested silently included the previous
+        // two as well. The app can only ask for the current batch — earlier
+        // ones are the admin panel's business.
+        $batch = TankBatch::currentFor((int) $tank_id);
+
+        $feeds = Feed::where('tank_id', $tank_id)
+                    ->when($batch, fn ($q) => $q->where('batch_id', $batch->id))
                     ->orderBy('id','desc')
                     ->get();
         //dd($feeds);
@@ -1929,16 +2358,49 @@ public function addTodaysQuantity(Request $request){
             ], 422);
         }
 
+        // This tank's CURRENT crop cycle — the open one, or the last finished
+        // one while the tank sits inactive so the farmer can still review and
+        // download what they just harvested. Earlier batches are the admin
+        // panel's business, not the app's.
+        $batch = TankBatch::currentFor((int) $tankId);
+
         $history = TankFeedHistory::where('tank_id', $tankId)
+            ->when($batch, fn ($q) => $q->where('batch_id', $batch->id))
             ->orderBy('id', 'DESC')
             ->get();
 
-        // The date the stock went in. The app draws a card for EVERY day from
-        // here to today — including days with nothing recorded — so a farmer
-        // who missed a day can still go back and enter it.
-        $stockingDate = Tank::where('tanks.id', $tankId)
-            ->join('farms', 'farms.id', '=', 'tanks.farm_id')
-            ->value('farms.stocking_date');
+        // The date THIS TANK's stock went in. The app draws a card for every
+        // day from here to today — including days with nothing recorded — so a
+        // farmer who missed a day can still go back and enter it, and it sizes
+        // each day's meal boxes from the day number this date produces.
+        //
+        // The tank's own date wins; the farm's is the fallback for tanks
+        // created before dates were kept per tank. This used to read the
+        // farm's date only, so every tank on a farm claimed the same age no
+        // matter when it was actually stocked.
+        $tank = Tank::find($tankId);
+
+        // The CURRENT BATCH's date first — a tank on its second crop is as old
+        // as that crop, not as old as the tank.
+        $stockingDate = optional($batch?->stocking_date)->toDateString()
+            ?: ($tank?->stocking_date
+                ?: Farm::withTrashed()->where('id', $tank?->farm_id)->value('stocking_date'));
+
+        // Normalised to Y-m-d: a DATE column comes back as a Carbon instance
+        // and would serialise with a time, which the app's DateTime.tryParse
+        // then reads as a different day in some timezones.
+        $stockingDate = $stockingDate
+            ? Carbon::parse($stockingDate)->toDateString()
+            : null;
+
+        // Which cycle this is, and whether it is still running. A finished
+        // batch is shown read-only, with its report still downloadable.
+        $batchMeta = [
+            'batch_id'  => $batch?->id,
+            'batch_no'  => $batch?->batch_no,
+            'is_active' => $batch ? $batch->isOpen() : false,
+            'ended_at'  => optional($batch?->ended_at)->toIso8601String(),
+        ];
 
         // if no data found
         if ($history->isEmpty()) {
@@ -1946,6 +2408,7 @@ public function addTodaysQuantity(Request $request){
                 'status'        => false,
                 'message'       => 'No record found',
                 'stocking_date' => $stockingDate,
+                'batch'         => $batchMeta,
                 'data'          => []
             ], 404);
         }
@@ -1955,6 +2418,7 @@ public function addTodaysQuantity(Request $request){
             'status'        => true,
             'message'       => 'Tank feed history fetched successfully',
             'stocking_date' => $stockingDate,
+            'batch'         => $batchMeta,
             'data'          => $history
         ], 200);
 
@@ -1985,8 +2449,14 @@ public function addTodaysQuantity(Request $request){
             ], 404);
         }
 
-        // total feed used in this farm
-        $farm->total_feed_used = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
+        // Total feed used in this farm — running crops only, matching the farm
+        // list. A finished batch's feed is history, not stock in progress.
+        $farm->total_feed_used = Feed::where('farm_id', $farm->id)
+            ->whereIn(
+                'batch_id',
+                TankBatch::where('farm_id', $farm->id)->open()->pluck('id')
+            )
+            ->sum('feed_quantity');
 
         // What is actually left in the store. `store` is the stock the farmer
         // put in; everything fed since comes out of it. Computed here so the

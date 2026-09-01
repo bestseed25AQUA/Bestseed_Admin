@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
+use App\Models\Feed;
 use App\Models\Tank;
+use App\Models\TankBatch;
 use App\Models\TankFeedHistory;
 use App\Services\TankFeedService;
 use Illuminate\Http\Request;
@@ -117,20 +119,52 @@ class FarmTankController extends Controller
         }
     }
 
-    /** Every feed entry for one tank, newest day first. */
-    public function feedHistory($farmId, $tankId)
+    /**
+     * One tank's feed, batch by batch.
+     *
+     * The farmer's app only ever shows the CURRENT crop cycle — a finished
+     * batch drops out of the farm totals, and an earlier one cannot be reached
+     * from the app at all. Admin is where the whole history lives, so every
+     * batch the tank has carried is listed here with its own records.
+     *
+     * `?batch=` narrows to one cycle; without it the newest is shown.
+     */
+    public function feedHistory(Request $request, $farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
 
+        $batches = TankBatch::where('tank_id', $tank->id)
+            ->orderByDesc('batch_no')
+            ->get()
+            ->map(function (TankBatch $batch) {
+                $batch->feed_total = (float) Feed::where('batch_id', $batch->id)
+                    ->sum('feed_quantity');
+
+                $batch->fed_days = TankFeedHistory::where('batch_id', $batch->id)
+                    ->distinct()
+                    ->count(DB::raw('DATE(feed_date)'));
+
+                return $batch;
+            });
+
+        $selected = $request->filled('batch')
+            ? $batches->firstWhere('id', (int) $request->input('batch'))
+            : $batches->first();
+
         $entries = TankFeedHistory::where('tank_id', $tank->id)
+            // A tank whose rows predate batches has none to filter by; showing
+            // everything beats showing nothing.
+            ->when($selected, fn ($q) => $q->where('batch_id', $selected->id))
             ->orderByDesc('feed_date')
             ->orderByDesc('id')
             ->get();
 
         return view('admin.farm-management.tanks.feed', [
-            'farm'    => Farm::withTrashed()->findOrFail($farmId),
-            'tank'    => $tank,
-            'entries' => $entries,
+            'farm'     => Farm::withTrashed()->findOrFail($farmId),
+            'tank'     => $tank,
+            'entries'  => $entries,
+            'batches'  => $batches,
+            'selected' => $selected,
         ]);
     }
 

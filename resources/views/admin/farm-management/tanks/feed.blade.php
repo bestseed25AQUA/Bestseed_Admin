@@ -50,6 +50,63 @@
             </div>
         </div>
 
+        {{-- Every crop cycle this tank has carried.
+
+             The farmer's app shows only the CURRENT one — a finished batch
+             leaves the farm totals, and an earlier one cannot be reached from
+             the app at all — so this is the only place the whole history of a
+             re-used tank is visible. --}}
+        @if ($batches->isNotEmpty())
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h4 class="card-title">Batches ({{ $batches->count() }})</h4>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Batch</th><th>Stocked</th><th>Finished</th>
+                                    <th>Days fed</th><th>Feed used</th><th>Status</th>
+                                    <th class="text-center">Records</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($batches as $batch)
+                                    <tr @class(['table-active' => $selected && $selected->id === $batch->id])>
+                                        <td class="font-weight-bold">#{{ $batch->batch_no }}</td>
+                                        <td>{{ optional($batch->stocking_date)->format('d M Y') ?? '-' }}</td>
+                                        <td>{{ optional($batch->ended_at)->format('d M Y') ?? '-' }}</td>
+                                        <td>{{ $batch->fed_days }}</td>
+                                        <td>{{ $batch->feed_total }}</td>
+                                        <td>
+                                            @if ($batch->ended_at)
+                                                <span class="badge bg-secondary">Finished</span>
+                                            @else
+                                                <span class="badge bg-success">Running</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-center">
+                                            <a class="btn btn-sm btn-info btn-action"
+                                               href="{{ route('farm-management.tanks.feed', [$farm->id, $tank->id]) }}?batch={{ $batch->id }}"
+                                               title="Show this batch's records">
+                                                <i class="fas fa-list"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if ($selected)
+                        <small class="text-muted d-block mt-2">
+                            Showing the records of batch #{{ $selected->batch_no }}.
+                        </small>
+                    @endif
+                </div>
+            </div>
+        @endif
+
         @permission('farm-management.create')
             <div class="card mb-4">
                 <div class="card-body">

@@ -13,6 +13,7 @@ class Feed extends Model
         'feed_quantity',
         'feed_date',
         'is_backfill',
+        'batch_id',
     ];
 
     //
