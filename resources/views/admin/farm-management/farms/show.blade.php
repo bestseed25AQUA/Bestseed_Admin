@@ -211,7 +211,7 @@
 
                                             @permission('farm-management.update')
                                                 <tr class="collapse" id="editTank{{ $tank->id }}">
-                                                    <td colspan="8" class="bg-light">
+                                                    <td colspan="7" class="bg-light">
                                                         <form action="{{ route('farm-management.tanks.update', [$farm->id, $tank->id]) }}" method="POST">
                                                             @csrf @method('PUT')
                                                             <div class="row">
@@ -362,11 +362,6 @@
                                                         <option value="partner">Partner</option>
                                                     </select>
                                                 </div>
-                                                <div class="form-group">
-                                                    <label>Valid for (days)</label>
-                                                    <input type="number" name="duration_days" class="form-control"
-                                                        min="1" max="365" placeholder="Leave blank for no expiry">
-                                                </div>
                                                 <label class="d-block"><strong>What they may do</strong></label>
                                                 @include('admin.farm-management.partials._permissions', ['values' => ['view_access' => 1]])
                                             </div>
@@ -391,7 +386,7 @@
                                     <thead>
                                         <tr>
                                             <th>ID</th><th>Person</th><th>Role</th><th>How</th>
-                                            <th>Permissions</th><th>Status</th><th>Expires</th>
+                                            <th>Permissions</th><th>Status</th>
                                             <th class="text-center">Actions</th>
                                         </tr>
                                     </thead>
@@ -399,7 +394,6 @@
                                         @foreach ($members as $member)
                                             @php
                                                 $person = $member->farmer;
-                                                $live   = $member->isLive();
                                             @endphp
                                             <tr>
                                                 <td>{{ $member->id }}</td>
@@ -426,13 +420,10 @@
                                                 <td>
                                                     @if ($member->revoked_at)
                                                         <span class="badge bg-danger">Revoked</span>
-                                                    @elseif (!$live)
-                                                        <span class="badge bg-warning">Expired</span>
                                                     @else
                                                         <span class="badge bg-success">Active</span>
                                                     @endif
                                                 </td>
-                                                <td>{{ $member->expires_at ? $member->expires_at->format('d M Y') : 'Never' }}</td>
                                                 <td class="text-center text-nowrap">
                                                     @permission('farm-management.update')
                                                         <button class="btn btn-sm btn-primary btn-action" title="Edit access"
@@ -475,21 +466,16 @@
 
                                             @permission('farm-management.update')
                                                 <tr class="collapse" id="editMember{{ $member->id }}">
-                                                    <td colspan="8" class="bg-light">
+                                                    <td colspan="7" class="bg-light">
                                                         <form action="{{ route('farm-management.members.update', $member->id) }}" method="POST">
                                                             @csrf @method('PUT')
                                                             <div class="row">
-                                                                <div class="col-md-3 form-group mb-2">
+                                                                <div class="col-md-4 form-group mb-2">
                                                                     <label class="small mb-1">Role</label>
                                                                     <select name="role" class="form-control form-control-sm">
                                                                         <option value="manager" @selected($member->role === 'manager')>Manager</option>
                                                                         <option value="partner" @selected($member->role === 'partner')>Partner</option>
                                                                     </select>
-                                                                </div>
-                                                                <div class="col-md-3 form-group mb-2">
-                                                                    <label class="small mb-1">Extend by (days)</label>
-                                                                    <input type="number" name="duration_days" class="form-control form-control-sm"
-                                                                        min="1" max="365" placeholder="Leave blank to keep">
                                                                 </div>
                                                                 <div class="col-md-6 form-group mb-2">
                                                                     <label class="small mb-1 d-block">What they may do</label>

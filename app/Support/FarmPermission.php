@@ -28,20 +28,21 @@ final class FarmPermission
         public readonly string $role,
         public readonly bool $view,
         public readonly bool $edit,
+        public readonly bool $tankStatus,
+        public readonly bool $totalFeed,
         public readonly bool $create,
         public readonly bool $delete,
-        public readonly ?string $expiresAt = null,
     ) {
     }
 
     public static function owner(): self
     {
-        return new self(self::ROLE_OWNER, true, true, true, true);
+        return new self(self::ROLE_OWNER, true, true, true, true, true, true);
     }
 
     public static function none(): self
     {
-        return new self(self::ROLE_NONE, false, false, false, false);
+        return new self(self::ROLE_NONE, false, false, false, false, false, false);
     }
 
     /** Built from a membership row — the only way access is held. */
@@ -51,9 +52,10 @@ final class FarmPermission
             role: $member->role === self::ROLE_PARTNER ? self::ROLE_PARTNER : self::ROLE_MANAGER,
             view: (bool) $member->view_access,
             edit: (bool) $member->edit_access,
+            tankStatus: (bool) $member->tank_status_access,
+            totalFeed: (bool) $member->total_feed_access,
             create: (bool) $member->create_access,
             delete: (bool) $member->delete_access,
-            expiresAt: optional($member->expires_at)->toIso8601String(),
         );
     }
 
@@ -76,11 +78,13 @@ final class FarmPermission
     public function allows(string $ability): bool
     {
         return match ($ability) {
-            'view'   => $this->view,
-            'edit'   => $this->edit,
-            'create' => $this->create,
-            'delete' => $this->delete,
-            default  => false,
+            'view'        => $this->view,
+            'edit'        => $this->edit,
+            'tank_status' => $this->tankStatus,
+            'total_feed'  => $this->totalFeed,
+            'create'      => $this->create,
+            'delete'      => $this->delete,
+            default       => false,
         };
     }
 
@@ -90,12 +94,13 @@ final class FarmPermission
         return [
             'role'        => $this->role,
             'is_owner'    => $this->isOwner(),
-            'expires_at'  => $this->expiresAt,
             'permissions' => [
-                'view'   => $this->view,
-                'edit'   => $this->edit,
-                'create' => $this->create,
-                'delete' => $this->delete,
+                'view'        => $this->view,
+                'edit'        => $this->edit,
+                'tank_status' => $this->tankStatus,
+                'total_feed'  => $this->totalFeed,
+                'create'      => $this->create,
+                'delete'      => $this->delete,
             ],
         ];
     }

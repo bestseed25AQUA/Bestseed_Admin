@@ -166,7 +166,7 @@ Route::prefix('farmer')->group(function () {
         Route::get('/farm/feed-store/{id}', [FarmController::class, 'getTotalFeedandStore'])->middleware('farm.access:view');
 
         //update farm total feed used and store value
-        Route::post('/farm/{id}/update-total-feed', [FarmController::class, 'updateTotalFeed'])->middleware('farm.access:edit');
+        Route::post('/farm/{id}/update-total-feed', [FarmController::class, 'updateTotalFeed'])->middleware('farm.access:total_feed');
 
         //add todays tank feed
         Route::post('/tanks/add-todays-tanks-quantity', [FarmController::class, 'addTodaysQuantity'])->middleware('farm.access:create');
@@ -175,7 +175,7 @@ Route::prefix('farmer')->group(function () {
         Route::post('/tanks/update-tanks-quantity', [FarmController::class, 'updateTankQuantity'])->middleware('farm.access:edit');
 
         //change/update tank status on click on on/off button
-        Route::post('/tank/status', [FarmController::class, 'changeTankStatus'])->middleware('farm.access:edit');
+        Route::post('/tank/status', [FarmController::class, 'changeTankStatus'])->middleware('farm.access:tank_status');
 
         //farm tank list-GET /api/farms/{farm_id}/tanks
         Route::get('/farms/{farm_id}/tanks', [FarmController::class, 'farmTanks'])->middleware('farm.access:view');

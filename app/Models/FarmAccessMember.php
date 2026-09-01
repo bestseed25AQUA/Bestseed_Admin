@@ -20,6 +20,8 @@ class FarmAccessMember extends Model
         'role',
         'view_access',
         'edit_access',
+        'tank_status_access',
+        'total_feed_access',
         'create_access',
         'delete_access',
         'expires_at',
@@ -31,14 +33,16 @@ class FarmAccessMember extends Model
         'revoked_at' => 'datetime',
     ];
 
-    /** Memberships that still grant access: not revoked, not expired. */
+    /**
+     * Memberships that still grant access.
+     *
+     * Access does not expire — it lasts until someone revokes it — so being
+     * revoked is the only thing that ends it. The expires_at column is kept
+     * only so historic rows are not lost; nothing writes it any more.
+     */
     public function scopeLive($query)
     {
-        return $query
-            ->whereNull('revoked_at')
-            ->where(function ($q) {
-                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            });
+        return $query->whereNull('revoked_at');
     }
 
     public function scopeForFarmer($query, $farmerId)
@@ -69,7 +73,6 @@ class FarmAccessMember extends Model
 
     public function isLive(): bool
     {
-        return $this->revoked_at === null
-            && ($this->expires_at === null || $this->expires_at->isFuture());
+        return $this->revoked_at === null;
     }
 }

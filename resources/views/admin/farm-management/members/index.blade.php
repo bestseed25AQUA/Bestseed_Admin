@@ -48,7 +48,6 @@
                             <option value="">Any status</option>
                             <option value="live" @selected(request('status') === 'live')>Active</option>
                             <option value="revoked" @selected(request('status') === 'revoked')>Revoked</option>
-                            <option value="expired" @selected(request('status') === 'expired')>Expired</option>
                         </select>
                     </div>
                     <div class="col-md-2 form-group mb-2">
@@ -73,7 +72,7 @@
                             <thead>
                                 <tr>
                                     <th>ID</th><th>Person</th><th>Farm</th><th>Role</th><th>How</th>
-                                    <th>Permissions</th><th>Status</th><th>Expires</th>
+                                    <th>Permissions</th><th>Status</th>
                                     <th class="text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -81,7 +80,6 @@
                                 @foreach ($members as $member)
                                     @php
                                         $person = $member->farmer;
-                                        $live   = $member->isLive();
                                     @endphp
                                     <tr>
                                         <td>{{ $member->id }}</td>
@@ -114,13 +112,10 @@
                                         <td>
                                             @if ($member->revoked_at)
                                                 <span class="badge bg-danger">Revoked</span>
-                                            @elseif (!$live)
-                                                <span class="badge bg-warning">Expired</span>
                                             @else
                                                 <span class="badge bg-success">Active</span>
                                             @endif
                                         </td>
-                                        <td>{{ $member->expires_at ? $member->expires_at->format('d M Y') : 'Never' }}</td>
                                         <td class="text-center text-nowrap">
                                             @permission('farm-management.update')
                                                 @if ($member->revoked_at)

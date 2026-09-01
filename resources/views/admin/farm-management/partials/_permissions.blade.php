@@ -5,11 +5,14 @@
     $values — array|object carrying view_access/edit_access/create_access/delete_access
 --}}
 @php
+    // Order matches the app's Setup Access screen.
     $abilities = [
-        'view_access'   => ['View',   'See the farm, its tanks and feed history'],
-        'create_access' => ['Create', 'Add tanks and record daily feed'],
-        'edit_access'   => ['Edit',   'Change farm details, tanks and feed entries'],
-        'delete_access' => ['Delete', 'Remove the farm and its tanks'],
+        'view_access'        => ['View', 'See the farm, its tanks and feed history'],
+        'edit_access'        => ['Edit', 'Change farm details, tanks and feed entries'],
+        'tank_status_access' => ['Tank Active / Inactive', 'Mark a tank active or inactive (harvest it)'],
+        'total_feed_access'  => ['Total Feed', 'Change the feed store and the low-feed alert limit'],
+        'create_access'      => ['Create', 'Add tanks and record daily feed'],
+        'delete_access'      => ['Delete', 'Remove the farm and its tanks'],
     ];
     $current = (array) ($values ?? []);
 

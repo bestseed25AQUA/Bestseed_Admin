@@ -64,42 +64,60 @@ class FarmAccessController extends Controller
      */
     public function searchFarmers(Request $request)
     {
-        $term = trim((string) $request->input('q', ''));
+        $mobile = preg_replace('/\D/', '', (string) $request->input('q', ''));
 
-        if (mb_strlen($term) < 3) {
+        // Access is given by mobile number and nothing else. A name search
+        // invites picking the wrong "Ramesh" out of a list of suggestions and
+        // handing a stranger the farm, so there are no partial matches here:
+        // ten digits, one exact answer, or none.
+        if (strlen($mobile) !== 10) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Type at least 3 characters to search.',
+                'message' => 'Enter the full 10-digit mobile number.',
                 'data'    => [],
             ], 422);
         }
 
-        $farmers = Farmer::query()
-            ->where('id', '!=', $request->user()->id)
-            ->where(function ($q) use ($term) {
-                $q->where('mobile', 'like', "%{$term}%")
-                  ->orWhere('first_name', 'like', "%{$term}%")
-                  ->orWhere('last_name', 'like', "%{$term}%");
-            })
-            ->orderBy('first_name')
-            ->limit(20)
-            ->get(['id', 'first_name', 'last_name', 'mobile', 'profile_image']);
+        if ((string) $request->user()->mobile === $mobile) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'That is your own number.',
+                'data'    => [],
+            ], 422);
+        }
+
+        $farmer = Farmer::where('mobile', $mobile)
+            ->first(['id', 'first_name', 'last_name', 'mobile', 'profile_image']);
+
+        // Not an error — the caller is told plainly that nobody holds this
+        // number, so the app can offer to add them by it.
+        if (!$farmer) {
+            return response()->json([
+                'status'      => true,
+                'found'       => false,
+                'mobile'      => $mobile,
+                'message'     => 'No one is registered with this number yet.',
+                'data'        => [],
+            ]);
+        }
 
         return response()->json([
             'status' => true,
-            'data'   => $farmers->map(fn ($f) => [
-                'id'     => $f->id,
-                'name'   => trim($f->first_name . ' ' . $f->last_name),
-                'mobile' => $f->mobile,
-                'image'  => $f->profile_image,
-            ]),
+            'found'  => true,
+            'mobile' => $mobile,
+            'data'   => [[
+                'id'     => $farmer->id,
+                'name'   => trim($farmer->first_name . ' ' . $farmer->last_name),
+                'mobile' => $farmer->mobile,
+                'image'  => $farmer->profile_image,
+            ]],
         ]);
     }
 
     /**
      * POST /api/farmer/farm/{farm}/members
      *   { farmer_ids: [..], role, view_access, edit_access, create_access,
-     *     delete_access, duration_days? }
+     *     delete_access }
      *
      * Grant access to one or more people. They can open the farm immediately.
      */
@@ -108,14 +126,18 @@ class FarmAccessController extends Controller
         [$farm, $mine] = $this->callerPermission($request, $farmId);
 
         $validator = validator($request->all(), [
-            'farmer_ids'    => 'required|array|min:1',
+            // Either existing people, or numbers nobody has registered yet.
+            'farmer_ids'    => 'nullable|array',
             'farmer_ids.*'  => 'integer|exists:farmers,id',
+            'mobiles'       => 'nullable|array',
+            'mobiles.*'     => 'digits:10',
             'role'          => ['required', Rule::in(['manager', 'partner'])],
-            'view_access'   => 'nullable|boolean',
-            'edit_access'   => 'nullable|boolean',
+            'view_access'        => 'nullable|boolean',
+            'edit_access'        => 'nullable|boolean',
+            'tank_status_access' => 'nullable|boolean',
+            'total_feed_access'  => 'nullable|boolean',
             'create_access' => 'nullable|boolean',
             'delete_access' => 'nullable|boolean',
-            'duration_days' => 'nullable|integer|min:1|max:365',
         ]);
 
         if ($validator->fails()) {
@@ -125,19 +147,47 @@ class FarmAccessController extends Controller
             ], 422);
         }
 
+        $farmerIds = (array) $request->input('farmer_ids', []);
+        $mobiles   = (array) $request->input('mobiles', []);
+
+        if (empty($farmerIds) && empty($mobiles)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Choose at least one person to give access to.',
+            ], 422);
+        }
+
+        // A number nobody has registered becomes a farmer here and now, with
+        // the same shape the login flow creates: mobile plus role, nothing
+        // else. When that person later asks for an OTP, firstOrCreate finds
+        // THIS row rather than making a second one, so the farm is already
+        // waiting for them the first time they sign in.
+        foreach ($mobiles as $mobile) {
+            $farmerIds[] = Farmer::firstOrCreate(
+                ['mobile' => $mobile],
+                ['role' => 'farmer']
+            )->id;
+        }
+
+        $farmerIds = array_values(array_unique(array_map('intval', $farmerIds)));
+
         // Nobody can hand out more than they hold.
         $wanted = [
-            'view_access'   => (int) $request->boolean('view_access'),
-            'edit_access'   => (int) $request->boolean('edit_access'),
-            'create_access' => (int) $request->boolean('create_access'),
-            'delete_access' => (int) $request->boolean('delete_access'),
+            'view_access'        => (int) $request->boolean('view_access'),
+            'edit_access'        => (int) $request->boolean('edit_access'),
+            'tank_status_access' => (int) $request->boolean('tank_status_access'),
+            'total_feed_access'  => (int) $request->boolean('total_feed_access'),
+            'create_access'      => (int) $request->boolean('create_access'),
+            'delete_access'      => (int) $request->boolean('delete_access'),
         ];
 
         $capped = [
-            'view_access'   => (int) ($wanted['view_access'] && $mine->view),
-            'edit_access'   => (int) ($wanted['edit_access'] && $mine->edit),
-            'create_access' => (int) ($wanted['create_access'] && $mine->create),
-            'delete_access' => (int) ($wanted['delete_access'] && $mine->delete),
+            'view_access'        => (int) ($wanted['view_access'] && $mine->view),
+            'edit_access'        => (int) ($wanted['edit_access'] && $mine->edit),
+            'tank_status_access' => (int) ($wanted['tank_status_access'] && $mine->tankStatus),
+            'total_feed_access'  => (int) ($wanted['total_feed_access'] && $mine->totalFeed),
+            'create_access'      => (int) ($wanted['create_access'] && $mine->create),
+            'delete_access'      => (int) ($wanted['delete_access'] && $mine->delete),
         ];
 
         if (array_sum($capped) === 0) {
@@ -147,16 +197,12 @@ class FarmAccessController extends Controller
             ], 403);
         }
 
-        $expiresAt = $request->filled('duration_days')
-            ? now()->addDays((int) $request->input('duration_days'))
-            : null;
-
         $added = [];
 
         DB::transaction(function () use (
-            $request, $farm, $capped, $expiresAt, &$added
+            $request, $farm, $capped, $farmerIds, &$added
         ) {
-            foreach ($request->input('farmer_ids') as $farmerId) {
+            foreach ($farmerIds as $farmerId) {
                 // The owner does not need granting access to their own farm.
                 if ((int) $farmerId === (int) $farm->farmer_id) {
                     continue;
@@ -167,7 +213,7 @@ class FarmAccessController extends Controller
                     array_merge($capped, [
                         'granted_by' => $request->user()->id,
                         'role'       => $request->input('role'),
-                        'expires_at' => $expiresAt,
+                        'expires_at' => null,
                         'revoked_at' => null,
                     ])
                 );
@@ -205,13 +251,14 @@ class FarmAccessController extends Controller
                 'granted_by' => $m->grantedBy
                     ? trim($m->grantedBy->first_name . ' ' . $m->grantedBy->last_name)
                     : null,
-                'status'     => $m->isLive() ? 'active' : ($m->revoked_at ? 'revoked' : 'expired'),
-                'expires_at' => optional($m->expires_at)->toIso8601String(),
+                'status'     => $m->isLive() ? 'active' : 'revoked',
                 'permissions' => [
-                    'view'   => (bool) $m->view_access,
-                    'edit'   => (bool) $m->edit_access,
-                    'create' => (bool) $m->create_access,
-                    'delete' => (bool) $m->delete_access,
+                    'view'        => (bool) $m->view_access,
+                    'edit'        => (bool) $m->edit_access,
+                    'tank_status' => (bool) $m->tank_status_access,
+                    'total_feed'  => (bool) $m->total_feed_access,
+                    'create'      => (bool) $m->create_access,
+                    'delete'      => (bool) $m->delete_access,
                 ],
             ]);
 

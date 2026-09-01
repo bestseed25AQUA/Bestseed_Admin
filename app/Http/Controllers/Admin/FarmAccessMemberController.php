@@ -36,12 +36,11 @@ class FarmAccessMemberController extends Controller
     /** Every membership across every farm, for the standalone list screen. */
     public function index(Request $request)
     {
-        $members = FarmAccessMember::with(['farm.farmer', 'farmer', 'grantedBy', 'grant'])
+        $members = FarmAccessMember::with(['farm.farmer', 'farmer', 'grantedBy'])
             ->when($request->filled('farm_id'), fn ($q) => $q->where('farm_id', $request->input('farm_id')))
             ->when($request->filled('role'), fn ($q) => $q->where('role', $request->input('role')))
             ->when($request->input('status') === 'live', fn ($q) => $q->live())
             ->when($request->input('status') === 'revoked', fn ($q) => $q->whereNotNull('revoked_at'))
-            ->when($request->input('status') === 'expired', fn ($q) => $q->whereNotNull('expires_at')->where('expires_at', '<=', now()))
             ->orderByDesc('id')
             ->get();
 
@@ -61,10 +60,11 @@ class FarmAccessMemberController extends Controller
             'farmer_ids.*'  => 'integer|exists:farmers,id',
             'role'          => ['required', Rule::in(['manager', 'partner'])],
             'view_access'   => 'nullable|boolean',
-            'edit_access'   => 'nullable|boolean',
+            'edit_access'        => 'nullable|boolean',
+            'tank_status_access' => 'nullable|boolean',
+            'total_feed_access'  => 'nullable|boolean',
             'create_access' => 'nullable|boolean',
             'delete_access' => 'nullable|boolean',
-            'duration_days' => 'nullable|integer|min:1|max:365',
         ], [
             'farmer_ids.required' => 'Pick at least one person to give access to.',
         ]);
@@ -80,15 +80,11 @@ class FarmAccessMemberController extends Controller
                 ->with('error', 'Choose at least one permission, otherwise the person would have access to nothing.');
         }
 
-        $expiresAt = $request->filled('duration_days')
-            ? now()->addDays((int) $request->input('duration_days'))
-            : null;
-
         try {
             $added = 0;
             $skippedOwner = false;
 
-            DB::transaction(function () use ($request, $farm, $permissions, $expiresAt, &$added, &$skippedOwner) {
+            DB::transaction(function () use ($request, $farm, $permissions, &$added, &$skippedOwner) {
                 foreach ($request->input('farmer_ids') as $farmerId) {
                     // The owner already has every permission by virtue of
                     // owning the farm; a membership row would be meaningless.
@@ -104,7 +100,7 @@ class FarmAccessMemberController extends Controller
                         array_merge($permissions, [
                             'granted_by' => $farm->farmer_id,
                             'role'       => $request->input('role'),
-                            'expires_at' => $expiresAt,
+                            'expires_at' => null,
                             'revoked_at' => null,
                         ])
                     );
@@ -137,10 +133,11 @@ class FarmAccessMemberController extends Controller
         $validator = Validator::make($request->all(), [
             'role'          => ['required', Rule::in(['manager', 'partner'])],
             'view_access'   => 'nullable|boolean',
-            'edit_access'   => 'nullable|boolean',
+            'edit_access'        => 'nullable|boolean',
+            'tank_status_access' => 'nullable|boolean',
+            'total_feed_access'  => 'nullable|boolean',
             'create_access' => 'nullable|boolean',
             'delete_access' => 'nullable|boolean',
-            'duration_days' => 'nullable|integer|min:1|max:365',
         ]);
 
         if ($validator->fails()) {
@@ -157,9 +154,7 @@ class FarmAccessMemberController extends Controller
         try {
             $member->update(array_merge($permissions, [
                 'role'       => $request->input('role'),
-                'expires_at' => $request->filled('duration_days')
-                    ? now()->addDays((int) $request->input('duration_days'))
-                    : $member->expires_at,
+                'expires_at' => null,
             ]));
 
             return redirect()->back()->with('success', 'Access updated.');
@@ -227,10 +222,12 @@ class FarmAccessMemberController extends Controller
     private function permissionsFrom(Request $request): array
     {
         return [
-            'view_access'   => (int) $request->boolean('view_access'),
-            'edit_access'   => (int) $request->boolean('edit_access'),
-            'create_access' => (int) $request->boolean('create_access'),
-            'delete_access' => (int) $request->boolean('delete_access'),
+            'view_access'        => (int) $request->boolean('view_access'),
+            'edit_access'        => (int) $request->boolean('edit_access'),
+            'tank_status_access' => (int) $request->boolean('tank_status_access'),
+            'total_feed_access'  => (int) $request->boolean('total_feed_access'),
+            'create_access'      => (int) $request->boolean('create_access'),
+            'delete_access'      => (int) $request->boolean('delete_access'),
         ];
     }
 }
