@@ -102,7 +102,7 @@
                                         {{ $farm->access_members_count }}
                                         <small class="text-muted">({{ $farm->live_members_count }} live)</small>
                                     </td>
-                                    <td>{{ $farm->stocking_date ?? '-' }}</td>
+                                    <td>{{ $farm->stocking_date ? date('d-m-Y', strtotime($farm->stocking_date)) : '-' }}</td>
                                     <td>
                                         <div class="d-flex justify-content-center">
                                             <a href="{{ route('farm-management.farms.show', $farm->id) }}"

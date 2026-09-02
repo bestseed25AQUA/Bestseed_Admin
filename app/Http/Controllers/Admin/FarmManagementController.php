@@ -9,7 +9,9 @@ use App\Models\Farmer;
 use App\Models\Feed;
 use App\Models\Manager;
 use App\Models\Tank;
+use App\Services\FarmStoreService;
 use App\Services\FeedBackfillService;
+use App\Services\TankBatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -171,7 +173,17 @@ class FarmManagementController extends Controller
         }
 
         try {
-            $farm->update(collect($validator->validated())->except(['images', 'feed_used_before'])->all());
+            $fields = collect($validator->validated())->except(['images', 'feed_used_before'])->all();
+
+            // The form shows stock ON HAND, so what comes back is a remainder.
+            // Written straight to `store` it would have the feed already
+            // recorded taken off a second time — see FarmStoreService.
+            if (array_key_exists('store', $fields) && $fields['store'] !== null && $fields['store'] !== '') {
+                $fields['store'] = app(FarmStoreService::class)
+                    ->columnForRemaining($farm, (float) $fields['store']);
+            }
+
+            $farm->update($fields);
 
             $this->saveImages($request, $farm);
 
@@ -356,14 +368,26 @@ class FarmManagementController extends Controller
         }
 
         $ids = [];
+        $batches = app(TankBatchService::class);
 
         for ($i = 1; $i <= $count; $i++) {
-            $ids[] = Tank::create([
+            $tank = Tank::create([
                 'farm_id'       => $farm->id,
                 'tank_name'     => 'Tank' . $i,
                 'status'        => 1,
                 'stocking_date' => $farm->stocking_date,
-            ])->id;
+            ]);
+
+            // Open the tank's first crop cycle, exactly as the app does when a
+            // farmer creates a farm.
+            //
+            // Without it the tank has no batch, so every feed row written
+            // against it — generated back-history included — lands with a NULL
+            // batch_id and is counted by nothing. A farm set up here read 0 kgs
+            // in the app however much feed had been entered for it.
+            $batches->open($tank, $farm->stocking_date);
+
+            $ids[] = $tank->id;
         }
 
         return $ids;

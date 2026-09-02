@@ -90,12 +90,12 @@
                                     @endif
                                 </td>
                             </tr>
-                            <tr><th>Stocking Date</th><td>{{ $farm->stocking_date ?? '-' }}</td></tr>
+                            <tr><th>Stocking Date</th><td>{{ $farm->stocking_date ? date('d-m-Y', strtotime($farm->stocking_date)) : '-' }}</td></tr>
                             <tr><th>Declared Tanks</th><td>{{ $farm->no_of_tanks ?? '-' }}</td></tr>
                             <tr><th>Store</th><td>{{ $farm->store ?? '-' }}</td></tr>
                             <tr><th>Low Feed Limit</th><td>{{ $farm->low_feed_limit ?? '-' }}</td></tr>
                             <tr><th>Total Feed Used</th><td>{{ (float) $totalFeedUsed }}</td></tr>
-                            <tr><th>Created</th><td>{{ optional($farm->created_at)->format('d M Y, h:i A') ?? '-' }}</td></tr>
+                            <tr><th>Created</th><td>{{ optional($farm->created_at)->format('d-m-Y, h:i A') ?? '-' }}</td></tr>
                         </table>
                     </div>
 
@@ -170,7 +170,7 @@
                                                 <td>{{ $tank->meals ?? '-' }}</td>
                                                 <td>{{ $tank->store ?? '-' }}</td>
                                                 <td>{{ $tank->total_feed_used ?? 0 }}</td>
-                                                <td>{{ $tank->stocking_date ?? '-' }}</td>
+                                                <td>{{ $tank->stocking_date ? date('d-m-Y', strtotime($tank->stocking_date)) : '-' }}</td>
                                                 <td class="text-center text-nowrap">
                                                     @permission('farm-management.view')
                                                         <a href="{{ route('farm-management.tanks.feed', [$farm->id, $tank->id]) }}"
@@ -291,7 +291,7 @@
                                                 <td>
                                                     @include('admin.farm-management.partials._permission-badges', ['row' => $member])
                                                 </td>
-                                                <td>{{ optional($member->created_at)->format('d M Y') ?? '-' }}</td>
+                                                <td>{{ optional($member->created_at)->format('d-m-Y') ?? '-' }}</td>
                                                 <td class="text-center">
                                                     @permission('farm-management.update')
                                                         <a href="{{ route('farm-management.team.edit', $member->id) }}"

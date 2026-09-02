@@ -34,15 +34,21 @@ class FarmAccessMember extends Model
     ];
 
     /**
-     * Memberships that still grant access.
+     * Memberships that still grant access: not revoked, and not expired.
      *
-     * Access does not expire — it lasts until someone revokes it — so being
-     * revoked is the only thing that ends it. The expires_at column is kept
-     * only so historic rows are not lost; nothing writes it any more.
+     * Access granted today does not expire — it lasts until someone revokes it,
+     * and `addMembers` writes expires_at as NULL. But rows left over from the
+     * QR flow DO carry a date, and honouring it costs one clause: a row that
+     * says it expired on 23 September must not still open the farm on the 24th.
+     * Without this the column was decoration, and the service's own promise of
+     * "not revoked, not expired" was only half kept.
      */
     public function scopeLive($query)
     {
-        return $query->whereNull('revoked_at');
+        return $query->whereNull('revoked_at')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            });
     }
 
     public function scopeForFarmer($query, $farmerId)

@@ -7,6 +7,13 @@
                 <i class="fas fa-utensils mr-2"></i>{{ $tank->tank_name }} — Feed Records
             </h3>
             @permission('farm-management.view')
+                {{-- The PDF is the same document the farmer downloads in the
+                     app, for the batch being viewed. The CSV stays alongside it
+                     for the whole tank, every batch, as a spreadsheet. --}}
+                <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf{{ isset($selected) && $selected ? '&batch=' . $selected->id : '' }}"
+                    class="btn btn-sm btn-primary float-right ml-2">
+                    <i class="fas fa-file-pdf mr-1"></i> Feed Report (PDF)
+                </a>
                 <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}"
                     class="btn btn-sm btn-outline-primary float-right">
                     <i class="fas fa-download mr-1"></i> Download CSV
@@ -43,7 +50,7 @@
             <div class="col-md-4">
                 <div class="card">
                     <div class="card-body">
-                        <h5 class="mb-0">{{ $tank->stocking_date ?? '-' }}</h5>
+                        <h5 class="mb-0">{{ $tank->stocking_date ? date('d-m-Y', strtotime($tank->stocking_date)) : '-' }}</h5>
                         <small class="text-muted">Stocking date</small>
                     </div>
                 </div>
@@ -74,8 +81,8 @@
                                 @foreach ($batches as $batch)
                                     <tr @class(['table-active' => $selected && $selected->id === $batch->id])>
                                         <td class="font-weight-bold">#{{ $batch->batch_no }}</td>
-                                        <td>{{ optional($batch->stocking_date)->format('d M Y') ?? '-' }}</td>
-                                        <td>{{ optional($batch->ended_at)->format('d M Y') ?? '-' }}</td>
+                                        <td>{{ optional($batch->stocking_date)->format('d-m-Y') ?? '-' }}</td>
+                                        <td>{{ optional($batch->ended_at)->format('d-m-Y') ?? '-' }}</td>
                                         <td>{{ $batch->fed_days }}</td>
                                         <td>{{ $batch->feed_total }}</td>
                                         <td>
@@ -120,10 +127,14 @@
                                 <input type="date" name="feed_date" class="form-control"
                                     value="{{ old('feed_date', now()->toDateString()) }}" required>
                             </div>
+                            {{-- The meal's NUMBER, not a count: one entry is
+                                 one meal, matching what the app records. Add a
+                                 second entry for the day's second meal. --}}
                             <div class="col-md-3 form-group">
-                                <label>Meals</label>
-                                <input type="number" step="0.01" min="0" name="meals" class="form-control"
-                                    value="{{ old('meals') }}" required>
+                                <label>Meal number</label>
+                                <input type="number" step="1" min="1" max="20" name="meals" class="form-control"
+                                    value="{{ old('meals', 1) }}" required>
+                                <small class="form-text text-muted">1 for the first feed of the day, 2 for the next.</small>
                             </div>
                             <div class="col-md-3 form-group">
                                 <label>Feed Quantity (kg)</label>
@@ -158,7 +169,7 @@
                                 @foreach ($entries as $entry)
                                     <tr>
                                         <td>{{ $entry->id }}</td>
-                                        <td>{{ \Illuminate\Support\Carbon::parse($entry->feed_date)->format('d M Y') }}</td>
+                                        <td>{{ \Illuminate\Support\Carbon::parse($entry->feed_date)->format('d-m-Y') }}</td>
                                         <td>{{ $entry->meals }}</td>
                                         <td>{{ number_format((float) $entry->feed_quantity, 2) }}</td>
                                         <td>
@@ -170,7 +181,7 @@
                                                 <span class="badge bg-info">Logged</span>
                                             @endif
                                         </td>
-                                        <td>{{ optional($entry->created_at)->format('d M Y H:i') ?? '-' }}</td>
+                                        <td>{{ optional($entry->created_at)->format('d-m-Y H:i') ?? '-' }}</td>
                                         <td class="text-center text-nowrap">
                                             @permission('farm-management.update')
                                                 <button class="btn btn-sm btn-primary btn-action" title="Edit entry"

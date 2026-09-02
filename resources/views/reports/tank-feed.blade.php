@@ -39,6 +39,22 @@
         }
         td.num { text-align: right; }
 
+        /* Each meal of a day, side by side. Inline-block rather than a nested
+           table or a row per meal: dompdf lays those out badly, and five rows
+           per day would turn a month's report into pages nobody reads. */
+        .meal {
+            display: inline-block;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            border-radius: 3px;
+            padding: 1px 5px;
+            margin: 0 4px 2px 0;
+            font-size: 9px;
+            color: #555;
+            white-space: nowrap;
+        }
+        .meal b { color: #222; }
+
         /* A day nobody recorded is shown, not skipped — the gaps are the point
            of the report. */
         tr.empty td { color: #aaa; }
@@ -62,18 +78,18 @@
     <div class="sub">
         {{ $farm->farm_name }}
         @if ($farmerName) · {{ $farmerName }} @endif
-        · generated {{ $generatedAt->format('d M Y, H:i') }}
+        · generated {{ $generatedAt->format('d-m-Y, H:i') }}
     </div>
 
     <table class="summary">
         <tr>
             <td>
                 <span class="label">Stocked on</span>
-                <span class="value">{{ $start->format('d M Y') }}</span>
+                <span class="value">{{ $start->format('d-m-Y') }}</span>
             </td>
             <td>
                 <span class="label">{{ $isFinished ? 'Harvested on' : 'Report up to' }}</span>
-                <span class="value">{{ $end->format('d M Y') }}</span>
+                <span class="value">{{ $end->format('d-m-Y') }}</span>
             </td>
             <td>
                 <span class="label">Days</span>
@@ -93,17 +109,33 @@
                 <th style="width:96px">Date</th>
                 <th style="width:70px" class="num">Meals</th>
                 <th style="width:104px" class="num">Feed (kg)</th>
-                <th>Entries</th>
+                {{-- Was "Entries", printing the row count — the same number
+                     Meals already shows, said twice in different words. The
+                     space is better spent on what each meal actually weighed,
+                     which the day total alone never told anyone. --}}
+                <th>Each meal (kg)</th>
             </tr>
         </thead>
         <tbody>
             @foreach ($rows as $row)
                 <tr class="{{ $row['entries'] === 0 ? 'empty' : '' }}">
                     <td>{{ $row['day'] }}</td>
-                    <td>{{ $row['date']->format('d M Y') }}</td>
+                    <td>{{ $row['date']->format('d-m-Y') }}</td>
                     <td class="num">{{ $row['entries'] === 0 ? '—' : $row['meals'] }}</td>
                     <td class="num">{{ $row['entries'] === 0 ? '—' : number_format($row['quantity'], 2) }}</td>
-                    <td>{{ $row['entries'] === 0 ? 'No feed recorded' : $row['entries'] . ' ' . ($row['entries'] === 1 ? 'entry' : 'entries') }}</td>
+                    <td>
+                        @if ($row['entries'] === 0)
+                            No feed recorded
+                        @elseif (empty($row['breakdown']))
+                            {{-- Generated as a day total, never itemised. --}}
+                            &mdash;
+                        @else
+                            @foreach ($row['breakdown'] as $meal)
+                                <span class="meal">Meal {{ $meal['meal'] }}
+                                    <b>{{ number_format($meal['quantity'], 2) }}</b></span>
+                            @endforeach
+                        @endif
+                    </td>
                 </tr>
             @endforeach
         </tbody>

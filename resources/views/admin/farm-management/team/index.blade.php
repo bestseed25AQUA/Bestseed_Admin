@@ -81,7 +81,7 @@
                                         @endif
                                     </td>
                                     <td>@include('admin.farm-management.partials._permission-badges', ['row' => $member])</td>
-                                    <td>{{ optional($member->created_at)->format('d M Y') ?? '-' }}</td>
+                                    <td>{{ optional($member->created_at)->format('d-m-Y') ?? '-' }}</td>
                                     <td>
                                         <div class="d-flex justify-content-center">
                                             @permission('farm-management.update')

@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\Farmer;
 use App\Models\Farm;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\FarmStoreService;
 use App\Services\FeedBackfillService;
+use App\Services\TankFeedReportService;
 use App\Models\Tank;
 use App\Models\TankBatch;
 use App\Models\Feed;
@@ -236,6 +238,117 @@ class FarmController extends Controller
         return $value === '' ? null : $value;
     }
 
+    /**
+     * How many meals a day's feed rows represent.
+     *
+     * `meals` on a row is the meal's NUMBER within its day — 1, 2, 3 — not a
+     * count, because every row IS one meal. Summing the column therefore added
+     * up the numbering: two meals reported as 1+2 = 3, three as 1+2+3 = 6, four
+     * as 1+2+3+4 = 10. The feed weights were right throughout; only the meal
+     * count was inflated.
+     *
+     * The one exception is the farm-wide backfill the admin panel still uses,
+     * which writes a single row per DAY whose `meals` genuinely is a count.
+     * Such a row is generated (is_backfill) and alone on its day, which is what
+     * separates it from a farmer who recorded one meal and numbered it 3.
+     *
+     * @param  \Illuminate\Support\Collection  $entries
+     */
+    private function mealsInDay($entries): int
+    {
+        if ($entries->isEmpty()) {
+            return 0;
+        }
+
+        if ($entries->count() === 1) {
+            $only = $entries->first();
+            $declared = (int) $only->meals;
+
+            if ((int) ($only->is_backfill ?? 0) === 1 && $declared > 1) {
+                return $declared;
+            }
+        }
+
+        return $entries->count();
+    }
+
+    /**
+     * One day's meals, in order, each with what it weighed.
+     *
+     * The report gave a day's TOTAL and left the farmer to divide it: "4 meals,
+     * 18.20 kg" says nothing about whether the evening feed was the same as the
+     * morning one. Every row is already one meal, so the detail is right there.
+     *
+     * Empty for the farm-wide backfill's single-row-per-day shape, where the
+     * meals were never itemised and there is nothing honest to break down.
+     *
+     * @param  \Illuminate\Support\Collection  $entries
+     * @return array<int, array{meal: int, quantity: float}>
+     */
+    private function mealBreakdown($entries): array
+    {
+        if ($entries->isEmpty()) {
+            return [];
+        }
+
+        if ($entries->count() === 1) {
+            $only = $entries->first();
+
+            if ((int) ($only->is_backfill ?? 0) === 1 && (int) $only->meals > 1) {
+                return [];
+            }
+        }
+
+        return $entries
+            ->sortBy(fn ($row) => (int) $row->meals)
+            ->map(fn ($row) => [
+                'meal'     => (int) $row->meals,
+                'quantity' => (float) $row->feed_quantity,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * What is left in a farm's store, or NULL when no stock figure exists.
+     *
+     * The one definition of the rule, because it has to hold in three places —
+     * the farm list, the farm header and the low-feed warning — and they must
+     * never disagree about the same farm.
+     *
+     * Only feed the farmer RECORDS draws on the store: today's meals, and
+     * anything entered against a past day in the tank history. Two things do
+     * not:
+     *
+     *  - The "feed already used" figure, wherever it is entered — adding a
+     *    farm, editing one, or activating a tank with a past stocking date. It
+     *    generates history so the tank reads its true age and consumption, but
+     *    it was fed before any of this was recorded here; it never came out of
+     *    the stock the farmer is counting.
+     *
+     *  - Which batch the feed belongs to. Every batch counts, open or closed,
+     *    so deactivating a tank does not hand its feed back to the store and
+     *    reactivating one does not take it away again.
+     *
+     * NULL rather than 0 for a farm with no stock figure: `store` is optional,
+     * and casting a missing one to 0 reported the farm as thousands of kilos
+     * overdrawn rather than simply unknown.
+     */
+    private function remainingStoreFor(Farm $farm): ?float
+    {
+        return app(FarmStoreService::class)->remainingFor($farm);
+    }
+
+    /**
+     * The `store` column to save when the farmer types what they have NOW.
+     * See [FarmStoreService::columnForRemaining] — the admin panel's farm form
+     * shows the same remainder and has to write it the same way.
+     */
+    private function storeColumnForRemaining(Farm $farm, float $remaining): float
+    {
+        return app(FarmStoreService::class)->columnForRemaining($farm, $remaining);
+    }
+
     private function ownedFarmIds(Request $request): array
     {
         return Farm::where('farmer_id', $request->user()->id)->pluck('id')->all();
@@ -343,6 +456,27 @@ class FarmController extends Controller
 
             $tank->stocking_date = $date;
             $tank->save();
+
+            // The tank's crop cycle has to move with it.
+            //
+            // Everything scoped to a batch reads the BATCH's stocking date, not
+            // the tank's: the day count, and the feed report's day-by-day
+            // range. Leaving it behind meant correcting a tank from today back
+            // to 1 August rewrote a month of history and then reported on a
+            // single day — the report opened at the stale date and every row
+            // before it fell outside the window, so a tank with 546 kg across
+            // 33 days produced "Days 1, 61.92 kg".
+            //
+            // currentFor(): the open batch, or the most recent one when the
+            // tank has been harvested — the same batch the app and the report
+            // are showing.
+            $batch = TankBatch::currentFor((int) $tank->id);
+
+            if ($batch) {
+                $batch->stocking_date = $date;
+                $batch->feed_used_before = $used > 0 ? $used : null;
+                $batch->save();
+            }
 
             // Rewrite, not append.
             $backfill->clearForTank((int) $tank->id);
@@ -763,6 +897,13 @@ class FarmController extends Controller
                     )
                     ->sum('feed_quantity');
 
+                // What is LEFT of the stock, so the card can show it beside
+                // Total Feed Used. The raw `store` column never moves as feed
+                // is recorded, so a card showing it read as though nothing had
+                // been used. See [remainingStoreFor] for what does and does not
+                // come off it.
+                $farm->remaining_store = $this->remainingStoreFor($farm);
+
                 // Lets the app hide edit/delete buttons for a partner who only
                 // holds view access, instead of finding out via a 403.
                 $farm->access = $permissions[$farm->id]->toArray();
@@ -878,7 +1019,14 @@ class FarmController extends Controller
                 $farm->stocking_date = Carbon::parse($earliest)->toDateString();
             }
             if ($request->has('store')) {
-                $farm->store = $this->nullIfBlank($request->input('store'));
+                $entered = $this->nullIfBlank($request->input('store'));
+
+                // Same rule as the feed sheet: the form shows what is IN THE
+                // SHED, so the feed already recorded is added back before this
+                // is stored. See [storeColumnForRemaining].
+                $farm->store = $entered === null
+                    ? null
+                    : $this->storeColumnForRemaining($farm, (float) $entered);
             }
             if ($request->has('low_feed_limit')) {
                 $farm->low_feed_limit = $this->nullIfBlank($request->input('low_feed_limit'));
@@ -1712,76 +1860,19 @@ public function addTodaysQuantity(Request $request){
             ], 404);
         }
 
-        $farm = Farm::withTrashed()->find($tank->farm_id);
+        // The report itself is built by [TankFeedReportService], shared with the
+        // admin panel so both render the same document. It used to be assembled
+        // here, and the admin panel could only export a CSV — so a farmer
+        // ringing up about a figure was reading something nobody on the other
+        // end could see.
+        $data = app(TankFeedReportService::class)->build($tank);
 
-        // ONE crop cycle, not the tank's whole life. A report for the batch
-        // just harvested used to include every earlier one as well.
-        $batch = TankBatch::currentFor($tankId);
-
-        $startDate = optional($batch?->stocking_date)->toDateString()
-            ?: ($tank->stocking_date ?: optional($farm)->stocking_date);
-
-        if (!$startDate) {
+        if ($data === null) {
             return response()->json([
-                'status'  => false,
-                'message' => 'This tank has no stocking date, so there is nothing to report yet.',
+                "status"  => false,
+                "message" => "This tank has no stocking date, so there is nothing to report yet.",
             ], 422);
         }
-
-        $start = Carbon::parse($startDate)->startOfDay();
-
-        // A finished crop stops at its harvest date; a running one runs to
-        // today. Either way the report never invents days beyond the crop.
-        $isFinished = $batch && $batch->ended_at !== null;
-
-        $end = $isFinished
-            ? Carbon::parse($batch->ended_at)->startOfDay()
-            : Carbon::now()->startOfDay();
-
-        if ($end->lessThan($start)) {
-            $end = $start->copy();
-        }
-
-        // Guard a bad date from producing a thousand-page document.
-        if ($start->diffInDays($end) > 400) {
-            $start = $end->copy()->subDays(400);
-        }
-
-        // One query, grouped by day, rather than one per day.
-        $byDate = TankFeedHistory::where('tank_id', $tankId)
-            ->when($batch, fn ($q) => $q->where('batch_id', $batch->id))
-            ->whereBetween('feed_date', [$start->toDateString(), $end->toDateString()])
-            ->get()
-            ->groupBy(fn ($row) => Carbon::parse($row->feed_date)->toDateString());
-
-        $rows          = [];
-        $totalMeals    = 0;
-        $totalQuantity = 0.0;
-        $fedDays       = 0;
-        $day           = 1;
-
-        for ($date = $start->copy(); $date->lessThanOrEqualTo($end); $date->addDay()) {
-            $entries  = $byDate->get($date->toDateString(), collect());
-            $meals    = (float) $entries->sum('meals');
-            $quantity = (float) $entries->sum('feed_quantity');
-
-            $rows[] = [
-                'day'      => $day++,
-                'date'     => $date->copy(),
-                'meals'    => $meals + 0,
-                'quantity' => $quantity,
-                'entries'  => $entries->count(),
-            ];
-
-            $totalMeals    += $meals;
-            $totalQuantity += $quantity;
-
-            if ($entries->isNotEmpty()) {
-                $fedDays++;
-            }
-        }
-
-        $farmer = $farm ? Farmer::find($farm->farmer_id) : null;
 
         $fileName = sprintf(
             'feed_report_%s_%s.pdf',
@@ -1789,19 +1880,7 @@ public function addTodaysQuantity(Request $request){
             now()->format('Y_m_d_His')
         );
 
-        $pdf = Pdf::loadView('reports.tank-feed', [
-            'tank'          => $tank,
-            'farm'          => $farm,
-            'farmerName'    => $farmer ? trim($farmer->first_name . ' ' . $farmer->last_name) : null,
-            'start'         => $start,
-            'end'           => $end,
-            'isFinished'    => $isFinished,
-            'rows'          => $rows,
-            'totalMeals'    => $totalMeals + 0,
-            'totalQuantity' => $totalQuantity,
-            'fedDays'       => $fedDays,
-            'generatedAt'   => now(),
-        ])->setPaper('a4');
+        $pdf = Pdf::loadView('reports.tank-feed', $data)->setPaper('a4');
 
         $folder = public_path('reports');
 
@@ -1920,8 +1999,12 @@ public function addTodaysQuantity(Request $request){
             // stocked below its own limit from day one; the old 404 here meant
             // those farms were never warned at all.
 
-            // Compare with low limit
-            $feed_remained_in_store= $store - $totalFeed;
+            // Compare with low limit — against the SAME figure the farm header
+            // shows, so a farmer cannot be warned about a shortage the app is
+            // not displaying. Charging generated history here warned the moment
+            // a farm was added with past stocking dates, about feed that never
+            // left this store.
+            $feed_remained_in_store = $this->remainingStoreFor($get_low_feed_limit_of_specific_farm);
             //if ($totalFeed < $lowLimit) {
             //if ($totalFeed < $lowLimit) {
             if ($feed_remained_in_store < $lowLimit) {
@@ -2543,23 +2626,16 @@ public function addTodaysQuantity(Request $request){
 
         // Total feed used in this farm — running crops only, matching the farm
         // list. A finished batch's feed is history, not stock in progress.
+        $openBatches = TankBatch::where('farm_id', $farm->id)->open()->pluck('id');
+
         $farm->total_feed_used = Feed::where('farm_id', $farm->id)
-            ->whereIn(
-                'batch_id',
-                TankBatch::where('farm_id', $farm->id)->open()->pluck('id')
-            )
+            ->whereIn('batch_id', $openBatches)
             ->sum('feed_quantity');
 
-        // What is actually left in the store. `store` is the stock the farmer
-        // put in; everything fed since comes out of it. Computed here so the
-        // header, the low-feed check and anything else agree on one number.
-        //
-        // NULL when no stock figure has been entered — `store` is optional, and
-        // casting a missing one to 0 reported the farm as thousands of kilos
-        // overdrawn rather than simply unknown.
-        $farm->remaining_store = ($farm->store === null || $farm->store === '')
-            ? null
-            : round((float) $farm->store - (float) $farm->total_feed_used, 2);
+        // What is left in the shed — deliberately not the figure above, and
+        // computed in one place so the list, this header and the low-feed
+        // warning cannot disagree. See [remainingStoreFor] for the rule.
+        $farm->remaining_store = $this->remainingStoreFor($farm);
 
 
         return response()->json([
@@ -2616,7 +2692,15 @@ public function addTodaysQuantity(Request $request){
         // 3. Update values
         // -------------------------------
        // $farm->total_feed_used  = $request->total_feed_used; //dont update otherwisewise calculation get wrong. disable
-        $farm->store = $request->store;
+        //
+        // The app sends what is IN THE SHED — the same figure it showed in the
+        // field — so the feed already recorded is added back before storing.
+        // See [storeColumnForRemaining]; without it, saving the sheet unchanged
+        // silently docked the farm again for feed it had already accounted for.
+        $farm->store = $this->storeColumnForRemaining(
+            $farm,
+            (float) $request->store
+        );
 
         if ($request->filled('low_feed_limit')) {
             $farm->low_feed_limit = $request->input('low_feed_limit');

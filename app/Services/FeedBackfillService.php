@@ -204,77 +204,34 @@ class FeedBackfillService
         }
 
         try {
-            $start = Carbon::parse($farm->stocking_date)->startOfDay();
-            $today = Carbon::now()->startOfDay();
-
-            // Nothing to spread for a farm stocked today or in the future.
-            if ($start->greaterThanOrEqualTo($today)) {
-                return;
-            }
-
-            $days = $start->diffInDays($today) + 1; // inclusive of both ends
-
-            if ($days * count($tankIds) > self::MAX_ROWS) {
-                Log::warning('Skipped feed backfill: too many rows', [
-                    'farm_id' => $farm->id,
-                    'days'    => $days,
-                    'tanks'   => count($tankIds),
-                ]);
-                return;
-            }
-
-            $rowCount = count($tankIds) * $days;
-
-            // Split so the rows add up to EXACTLY what was entered.
+            // Delegated to the per-tank path rather than writing its own rows.
             //
-            // Rounding each row to 2dp independently drifts: 25000 over 138
-            // rows is 181.159420, which rounds to 181.16 and multiplies back
-            // to 25000.08. Round DOWN to a base, then hand out the leftover a
-            // paisa at a time, so the sum reconciles with the entered figure.
-            $base      = floor($totalUsed / $rowCount * 100) / 100;
-            $remainder = (int) round(($totalUsed - $base * $rowCount) * 100);
+            // This used to write ONE row per tank per day, carrying the day's
+            // meal COUNT in `meals`. The app writes one row per MEAL, numbered.
+            // Two shapes in one table meant a farm created in the admin panel
+            // reported differently from an identical one made in the app: its
+            // days could not be itemised into "Meal 1 · 4.55", and counting a
+            // day's meals had to special-case the older shape.
+            //
+            // The figure is still entered once for the whole farm here — that
+            // is the admin form — so it is divided evenly across the tanks and
+            // each tank fills in its own days.
+            $share = round($totalUsed / count($tankIds), 2);
 
-            if ($base <= 0 && $remainder <= 0) {
-                return;
+            // The last tank absorbs the rounding, so the rows still add up to
+            // exactly what was typed.
+            $remainder = round($totalUsed - $share * count($tankIds), 2);
+
+            foreach (array_values($tankIds) as $i => $tankId) {
+                $amount = $share + ($i === count($tankIds) - 1 ? $remainder : 0);
+
+                $this->applyForTank(
+                    $farm,
+                    (int) $tankId,
+                    $farm->stocking_date,
+                    $amount
+                );
             }
-
-            $now   = now();
-            $rows  = [];
-            $index = 0;
-
-            foreach ($tankIds as $tankId) {
-                for ($d = 0; $d < $days; $d++) {
-                    // The first $remainder rows carry one extra paisa.
-                    $quantity = $base + ($index < $remainder ? 0.01 : 0);
-                    $index++;
-
-                    $rows[] = [
-                        'meals'         => self::mealsForDay($d + 1),
-                        'tank_id'       => $tankId,
-                        'farm_id'       => $farm->id,
-                        'feed_quantity' => round($quantity, 2),
-                        'feed_date'     => $start->copy()->addDays($d)->toDateString(),
-                        'is_backfill'   => 1,
-                        'created_at'    => $now,
-                        'updated_at'    => $now,
-                    ];
-                }
-            }
-
-            DB::transaction(function () use ($rows, $tankIds) {
-                foreach (array_chunk($rows, 500) as $chunk) {
-                    Feed::insert($chunk);
-                    TankFeedHistory::insert($chunk);
-                }
-
-                // Keep each tank's running total in step with its own rows —
-                // they can differ by a paisa after the remainder is handed out.
-                foreach ($tankIds as $tankId) {
-                    Tank::where('id', $tankId)->update([
-                        'total_feed_used' => (float) Feed::where('tank_id', $tankId)->sum('feed_quantity'),
-                    ]);
-                }
-            });
 
             // Remember what was entered so the edit form can show it back, and
             // so a later correction knows what it is replacing.

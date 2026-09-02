@@ -8,7 +8,10 @@ use App\Models\Feed;
 use App\Models\Tank;
 use App\Models\TankBatch;
 use App\Models\TankFeedHistory;
+use App\Services\TankBatchService;
+use App\Services\TankFeedReportService;
 use App\Services\TankFeedService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -48,6 +51,13 @@ class FarmTankController extends Controller
                 // admin gave it one of its own.
                 'stocking_date' => $request->input('stocking_date') ?: $farm->stocking_date,
             ]));
+
+            // Open its first crop cycle, as the app does. A tank with no batch
+            // swallows every feed row written against it: they land with a NULL
+            // batch_id, which the farm total and the report both skip.
+            if ((int) $tank->status === 1) {
+                app(TankBatchService::class)->open($tank, $tank->stocking_date);
+            }
 
             Log::info('Admin created tank', ['tank_id' => $tank->id, 'farm_id' => $farm->id]);
 
@@ -106,14 +116,30 @@ class FarmTankController extends Controller
         }
     }
 
+    /**
+     * Harvest a tank, or start it on a fresh crop.
+     *
+     * Goes through [TankBatchService] rather than flipping `tanks.status`,
+     * which is all this used to do. The column and the crop cycle then said
+     * different things: a tank the admin marked harvested kept an OPEN batch,
+     * so the farmer's app went on counting its feed in the farm total and
+     * treating the crop as running — and marking it active again started no new
+     * cycle, so the next crop's feed piled onto the finished one instead of
+     * starting from zero.
+     */
     public function toggleStatus($farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
 
         try {
-            $tank->update(['status' => $tank->status ? 0 : 1]);
+            app(TankBatchService::class)->setStatus($tank, $tank->status ? 0 : 1);
 
-            return redirect()->back()->with('success', $tank->status ? 'Tank is now active.' : 'Tank is now inactive.');
+            return redirect()->back()->with(
+                'success',
+                $tank->status
+                    ? 'Tank is now active on a new crop.'
+                    : 'Tank is now inactive. Its crop is finished and its report stays available.'
+            );
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Could not change the tank status: ' . $e->getMessage());
         }
@@ -245,10 +271,38 @@ class FarmTankController extends Controller
      * because a phone needs a URL to hand to its downloader. A browser does
      * not, so this streams the rows instead — no files accumulating on disk.
      */
-    public function feedReport($farmId, $tankId)
+    public function feedReport(Request $request, $farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
         $farm = Farm::withTrashed()->findOrFail($farmId);
+
+        // `?format=pdf` renders the SAME document the farmer downloads in the
+        // app, for whichever batch is being looked at. Admin could only export
+        // a CSV before, so a farmer ringing up about a figure in their report
+        // was reading something nobody on this side could see.
+        if ($request->query('format') === 'pdf') {
+            $batch = $request->filled('batch')
+                ? TankBatch::where('tank_id', $tank->id)->find($request->query('batch'))
+                : null;
+
+            $data = app(TankFeedReportService::class)->build($tank, $batch);
+
+            if ($data === null) {
+                return redirect()->back()->with(
+                    'error',
+                    'This tank has no stocking date, so there is nothing to report yet.'
+                );
+            }
+
+            return Pdf::loadView('reports.tank-feed', $data)
+                ->setPaper('a4')
+                ->download(sprintf(
+                    '%s_%s_feed_%s.pdf',
+                    \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
+                    \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
+                    now()->format('Y_m_d')
+                ));
+        }
 
         $filename = sprintf(
             '%s_%s_feed_%s.csv',
@@ -301,7 +355,12 @@ class FarmTankController extends Controller
     {
         return [
             'feed_date'     => 'required|date',
-            'meals'         => 'required|numeric|min:0',
+            // The meal's NUMBER within its day, not how many there were: one
+            // row is one meal, the same shape the app writes. Accepting a count
+            // here put a single row saying "4 meals" beside four rows numbered
+            // 1-4 in the same tank, and the report — which counts rows — read
+            // that day as one meal.
+            'meals'         => 'required|integer|min:1|max:20',
             'feed_quantity' => 'required|numeric|min:0',
         ];
     }

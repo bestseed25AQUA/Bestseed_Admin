@@ -44,10 +44,16 @@
         <small class="text-muted">Tanks are created with the farm. Afterwards, manage them from the farm detail page.</small>
     </div>
 
+    {{-- Stock ON HAND — the same figure the app shows as Remaining Stock, not
+         the raw `store` column. That column is the total ever put in and never
+         moves as feed is recorded, so an admin looking at a farm down to 9,900
+         of its original 10,000 saw 10,000 and would "correct" a number that was
+         not wrong. The controller adds the recorded feed back on save. --}}
     <div class="col-md-4 form-group">
-        <label for="store">Store (feed in stock)</label>
+        <label for="store">Store (feed in stock now)</label>
         <input type="number" step="0.01" min="0" class="form-control" id="store" name="store"
-            value="{{ old('store', $farm->store ?? '') }}">
+            value="{{ old('store', isset($farm->id) ? app(App\Services\FarmStoreService::class)->remainingFor($farm) : '') }}">
+        <small class="text-muted">What is in the shed today. Feed recorded from now on comes off it.</small>
     </div>
 
     <div class="col-md-4 form-group">

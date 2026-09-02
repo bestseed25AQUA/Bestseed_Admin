@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Feed;
 use App\Models\Tank;
+use App\Models\TankBatch;
 use App\Models\TankFeedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -21,27 +22,41 @@ use Illuminate\Support\Facades\DB;
  */
 class TankFeedService
 {
-    /** Add one feed entry to a tank on a given day. Returns the history row. */
+    /**
+     * Add one feed entry to a tank on a given day. Returns the history row.
+     *
+     * `$meals` is the meal's NUMBER within its day — 1 for the first feed, 2
+     * for the next — not a count, because one row IS one meal. That is how the
+     * app writes them and how the report counts a day's meals.
+     */
     public function record(int $tankId, int $farmId, string $date, float $meals, float $quantity): TankFeedHistory
     {
         $day = Carbon::parse($date)->toDateString();
 
-        return DB::transaction(function () use ($tankId, $farmId, $day, $meals, $quantity) {
-            $history = TankFeedHistory::create([
-                'tank_id'       => $tankId,
-                'farm_id'       => $farmId,
-                'feed_date'     => $day,
-                'meals'         => $meals,
-                'feed_quantity' => $quantity,
-            ]);
+        // Which crop cycle this belongs to.
+        //
+        // Feed with no batch is invisible to the farmer: the farm's Total Feed
+        // Used counts only the feed of OPEN batches, and a tank's report is
+        // built for one batch, so a row written without this reached neither.
+        // Every entry the admin panel added would have vanished from the app.
+        $batchId = optional(TankBatch::currentFor($tankId))->id;
 
-            Feed::create([
+        return DB::transaction(function () use ($tankId, $farmId, $day, $meals, $quantity, $batchId) {
+            $row = [
                 'tank_id'       => $tankId,
                 'farm_id'       => $farmId,
+                'batch_id'      => $batchId,
                 'feed_date'     => $day,
                 'meals'         => $meals,
                 'feed_quantity' => $quantity,
-            ]);
+                // Feed someone actually recorded, so it comes off the store.
+                // Generated back-history carries 1 here and does not.
+                'is_backfill'   => 0,
+            ];
+
+            $history = TankFeedHistory::create($row);
+
+            Feed::create($row);
 
             $this->recomputeTankTotal($tankId);
 
