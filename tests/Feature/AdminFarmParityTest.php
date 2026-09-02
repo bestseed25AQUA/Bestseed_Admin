@@ -84,8 +84,10 @@ class AdminFarmParityTest extends TestCase
             $lastDay = TankFeedHistory::where('farm_id', $farm->id)
                 ->whereDate('feed_date', now()->toDateString())->first();
 
-            $this->assertSame(2, (int) $firstDay->meals, 'Day 1 is 2 meals.');
-            $this->assertSame(3, (int) $lastDay->meals, 'Day 10 is 3 meals.');
+            // The schedule lives in FeedBackfillService::mealsForDay():
+            // days 1-2 take 2 meals, days 3-4 take 3, day 5 onwards takes 4.
+            $this->assertSame(2, (int) $firstDay->meals, 'Day 1 takes 2 meals.');
+            $this->assertSame(4, (int) $lastDay->meals, 'Day 10 takes 4 meals.');
 
             // 6. the farm is visible to its owner through the app's own query
             $this->assertTrue(

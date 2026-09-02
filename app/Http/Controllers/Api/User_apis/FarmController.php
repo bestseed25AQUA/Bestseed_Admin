@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Farmer;
 use App\Models\Farm;
+use Barryvdh\DomPDF\Facade\Pdf;
 use App\Services\FeedBackfillService;
 use App\Models\Tank;
 use App\Models\TankBatch;
@@ -313,8 +314,13 @@ class FarmController extends Controller
             $date = null;
             if (!empty($row['stocking_date'])) {
                 try {
-                    $parsed = Carbon::parse($row['stocking_date'])->startOfDay();
-                    $date = $parsed->greaterThan($today) ? null : $parsed->toDateString();
+                    // A future date is kept: a pond can be set up before it
+                    // is stocked. No history is generated for it — the
+                    // backfill stops short of dates that have not arrived —
+                    // and the tank simply reads Day 0 until the day comes.
+                    $date = Carbon::parse($row['stocking_date'])
+                        ->startOfDay()
+                        ->toDateString();
                 } catch (\Throwable $e) {
                     $date = null;
                 }
@@ -438,11 +444,13 @@ class FarmController extends Controller
 
             if (!empty($row['stocking_date'])) {
                 try {
-                    $parsed = Carbon::parse($row['stocking_date'])->startOfDay();
-                    // A tank cannot have been stocked in the future; treat one
-                    // as unset rather than generating history that has not
-                    // happened.
-                    $date = $parsed->greaterThan($today) ? null : $parsed->toDateString();
+                    // Kept even when it is in the future: a pond can be set
+                    // up before it is stocked. The backfill generates nothing
+                    // for a date that has not arrived, so the tank just reads
+                    // Day 0 until it does.
+                    $date = Carbon::parse($row['stocking_date'])
+                        ->startOfDay()
+                        ->toDateString();
                 } catch (\Throwable $e) {
                     $date = null;
                 }
@@ -500,7 +508,7 @@ class FarmController extends Controller
                     // Optional now: the app sends a date per TANK in
                     // `tanks_meta` and the farm's own date is derived from the
                     // earliest of them. Older clients still send this one.
-                    'stocking_date' => 'nullable|date|before_or_equal:today',
+                    'stocking_date' => 'nullable|date',
                     'tanks' => 'required|integer|min:1',
                     // Per-tank stocking dates and prior feed, as a JSON array
                     // of {stocking_date, feed_used_before}. Validated after
@@ -651,6 +659,25 @@ class FarmController extends Controller
                         $tank->stocking_date = $row['stocking_date'];
                         $tank->save();
                         $tankIds[] = $tank->id;
+
+                        // Open the tank's first crop cycle.
+                        //
+                        // Feed rows belong to a batch, and the farm's Total
+                        // Feed Used counts only the feed of batches still
+                        // running. A tank created without one leaves every row
+                        // it generates orphaned at batch_id NULL, so the farm
+                        // reads 0 kgs however much was actually entered.
+                        TankBatch::create([
+                            'tank_id'          => $tank->id,
+                            'farm_id'          => $farm->id,
+                            'batch_no'         => 1,
+                            'stocking_date'    => $row['stocking_date'],
+                            'feed_used_before' => $row['feed_used_before'] > 0
+                                ? $row['feed_used_before']
+                                : null,
+                            'started_at'       => now(),
+                            'ended_at'         => null,
+                        ]);
                     }
 
                     // Tank stocked on a past date: spread that tank's own
@@ -1310,7 +1337,7 @@ public function addTodaysQuantity(Request $request){
             // Only read when ACTIVATING: a fresh crop needs a date to count
             // its days from, and — if it went in before today — the feed it
             // has already had.
-            'stocking_date'    => 'nullable|date|before_or_equal:today',
+            'stocking_date'    => 'nullable|date',
             'feed_used_before' => 'nullable|numeric|min:0',
         ]);
 
@@ -1564,9 +1591,16 @@ public function addTodaysQuantity(Request $request){
                 $stockingDate = optional($batch?->stocking_date)->toDateString()
                     ?: ($Tank->stocking_date ?: $farmStockingDate);
 
-                $Tank->day = $stockingDate
-                    ? Carbon::parse($stockingDate)->startOfDay()->diffInDays(now()->startOfDay()) + 1
-                    : 0;
+                // Day 1 is the stocking day. A tank stocked in the future is
+                // Day 0 — not yet started — rather than a negative count.
+                $Tank->day = 0;
+
+                if ($stockingDate) {
+                    $start = Carbon::parse($stockingDate)->startOfDay();
+                    $Tank->day = $start->greaterThan(now()->startOfDay())
+                        ? 0
+                        : $start->diffInDays(now()->startOfDay()) + 1;
+                }
 
                 // The date the app should reckon this tank's age from, already
                 // resolved — the tank's own, or the farm's for tanks created
@@ -1656,78 +1690,136 @@ public function addTodaysQuantity(Request $request){
     /** download tank feed report in csv beg */
 
 
+    /**
+     * A day-by-day PDF of one crop cycle, for the tank's Download button.
+     *
+     * Every date from stocking to today — or to the harvest date once the crop
+     * is finished — appears as its own row, including days nobody recorded
+     * anything. The gaps are the useful part: a farmer reviewing a season wants
+     * to see which days were missed, and a CSV of only the days that happen to
+     * have rows hides exactly that.
+     */
     public function downloadFeedReport(Request $request)
-    {   
-        //$farm_id = $request->farm_id;
-        $tank_id = $request->tank_id; //eg-5
-        //dd($tank_id);
+    {
+        $tankId = (int) $request->input('tank_id');
 
-        // File path
-        $fileName = 'tank_feed_report_' . date('Y_m_d_H_i_s') . '.csv';
-        //$filePath = 'reports/' . $fileName; //old
+        $tank = Tank::find($tankId);
 
-        $folderPath = public_path('reports');
-       
-        $filePath = $folderPath . '/' . $fileName;
-
-        // Fetch data
-       /*$feeds = Feed::when($farm_id, function ($query) use ($farm_id) {
-            $query->where('farm_id', $farm_id);
-        })->get(['id', 'tank_id', 'farm_id', 'feed_quantity', 'meals', 'feed_date']);*/
-        
-        // ONE crop cycle, not the tank's whole life.
-        //
-        // This used to dump every feed row the tank had ever carried, so a
-        // report for the batch just harvested silently included the previous
-        // two as well. The app can only ask for the current batch — earlier
-        // ones are the admin panel's business.
-        $batch = TankBatch::currentFor((int) $tank_id);
-
-        $feeds = Feed::where('tank_id', $tank_id)
-                    ->when($batch, fn ($q) => $q->where('batch_id', $batch->id))
-                    ->orderBy('id','desc')
-                    ->get();
-        //dd($feeds);
-        // Ensure directory exists
-       // Storage::makeDirectory('reports'); //original commented allready folder
-
-        
-
-        // Open file in storage
-        //$file = fopen(storage_path('app/public/' . $filePath), 'w');
-
-         $file = fopen($filePath, 'w');
-
-        // Write CSV headers
-        fputcsv($file, ['ID', 'Tank ID', 'Farm ID', 'Feed Quantity', 'Meals', 'Feed Date']);
-
-        // Write rows
-        foreach ($feeds as $feed) {
-            fputcsv($file, [
-                $feed->id,
-                $feed->tank_id,
-                $feed->farm_id,
-                $feed->feed_quantity,
-                $feed->meals,
-                $feed->feed_date,
-            ]);
+        if (!$tank) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'That tank no longer exists.',
+            ], 404);
         }
 
-        fclose($file);
+        $farm = Farm::withTrashed()->find($tank->farm_id);
 
-        // Get file public URL (make sure `php artisan storage:link` is done)
-        //$downloadUrl = asset('storage/' . $filePath);
-      //  $downloadUrl =asset('storage/' . $filePath);;
-      //  $downloadUrl= 'http://127.0.0.1:8000/reports/'.$fileName; //local////http://127.0.0.1:8000/storage/C:\\xampp\\htdocs\\techland_rvindra_code_folder\\best-seeds\\public\\reports/tank_feed_report_2025_11_15_01_22_14.csv"
+        // ONE crop cycle, not the tank's whole life. A report for the batch
+        // just harvested used to include every earlier one as well.
+        $batch = TankBatch::currentFor($tankId);
 
-        // Same reason as the farm images above: never hardcode the host.
+        $startDate = optional($batch?->stocking_date)->toDateString()
+            ?: ($tank->stocking_date ?: optional($farm)->stocking_date);
+
+        if (!$startDate) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'This tank has no stocking date, so there is nothing to report yet.',
+            ], 422);
+        }
+
+        $start = Carbon::parse($startDate)->startOfDay();
+
+        // A finished crop stops at its harvest date; a running one runs to
+        // today. Either way the report never invents days beyond the crop.
+        $isFinished = $batch && $batch->ended_at !== null;
+
+        $end = $isFinished
+            ? Carbon::parse($batch->ended_at)->startOfDay()
+            : Carbon::now()->startOfDay();
+
+        if ($end->lessThan($start)) {
+            $end = $start->copy();
+        }
+
+        // Guard a bad date from producing a thousand-page document.
+        if ($start->diffInDays($end) > 400) {
+            $start = $end->copy()->subDays(400);
+        }
+
+        // One query, grouped by day, rather than one per day.
+        $byDate = TankFeedHistory::where('tank_id', $tankId)
+            ->when($batch, fn ($q) => $q->where('batch_id', $batch->id))
+            ->whereBetween('feed_date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->groupBy(fn ($row) => Carbon::parse($row->feed_date)->toDateString());
+
+        $rows          = [];
+        $totalMeals    = 0;
+        $totalQuantity = 0.0;
+        $fedDays       = 0;
+        $day           = 1;
+
+        for ($date = $start->copy(); $date->lessThanOrEqualTo($end); $date->addDay()) {
+            $entries  = $byDate->get($date->toDateString(), collect());
+            $meals    = (float) $entries->sum('meals');
+            $quantity = (float) $entries->sum('feed_quantity');
+
+            $rows[] = [
+                'day'      => $day++,
+                'date'     => $date->copy(),
+                'meals'    => $meals + 0,
+                'quantity' => $quantity,
+                'entries'  => $entries->count(),
+            ];
+
+            $totalMeals    += $meals;
+            $totalQuantity += $quantity;
+
+            if ($entries->isNotEmpty()) {
+                $fedDays++;
+            }
+        }
+
+        $farmer = $farm ? Farmer::find($farm->farmer_id) : null;
+
+        $fileName = sprintf(
+            'feed_report_%s_%s.pdf',
+            Str::slug($tank->tank_name ?: 'tank'),
+            now()->format('Y_m_d_His')
+        );
+
+        $pdf = Pdf::loadView('reports.tank-feed', [
+            'tank'          => $tank,
+            'farm'          => $farm,
+            'farmerName'    => $farmer ? trim($farmer->first_name . ' ' . $farmer->last_name) : null,
+            'start'         => $start,
+            'end'           => $end,
+            'isFinished'    => $isFinished,
+            'rows'          => $rows,
+            'totalMeals'    => $totalMeals + 0,
+            'totalQuantity' => $totalQuantity,
+            'fedDays'       => $fedDays,
+            'generatedAt'   => now(),
+        ])->setPaper('a4');
+
+        $folder = public_path('reports');
+
+        if (!is_dir($folder)) {
+            mkdir($folder, 0755, true);
+        }
+
+        $pdf->save($folder . '/' . $fileName);
+
+        // Never hardcode the host — the app re-points this at whichever server
+        // the build talks to, but it should be right to begin with.
         $downloadUrl = rtrim(config('app.url'), '/') . '/reports/' . $fileName;
 
         return response()->json([
-            'status' => true,
-            'message' => 'Tank feed report generated successfully.',
+            'status'        => true,
+            'message'       => 'Tank feed report generated successfully.',
             'download_link' => $downloadUrl,
-        ]);
+        ], 200);
     }
 
     /** download tank feed report in csv end */
