@@ -38,12 +38,15 @@ class FarmStoreService
      */
     public function recordedFeedFor(Farm $farm): float
     {
+        // Aliased `total_fed` / `backfilled`, not `total` / `generated`:
+        // GENERATED is a reserved word in MySQL 8, and an unquoted alias by
+        // that name is a syntax error, not a warning.
         $fed = Feed::where('farm_id', $farm->id)
-            ->selectRaw('COALESCE(SUM(feed_quantity), 0) AS total')
-            ->selectRaw('COALESCE(SUM(CASE WHEN is_backfill = 1 THEN feed_quantity ELSE 0 END), 0) AS generated')
+            ->selectRaw('COALESCE(SUM(feed_quantity), 0) AS total_fed')
+            ->selectRaw('COALESCE(SUM(CASE WHEN is_backfill = 1 THEN feed_quantity ELSE 0 END), 0) AS backfilled')
             ->first();
 
-        return (float) $fed->total - (float) $fed->generated;
+        return (float) $fed->total_fed - (float) $fed->backfilled;
     }
 
     /**
