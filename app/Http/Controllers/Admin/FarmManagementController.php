@@ -190,8 +190,18 @@ class FarmManagementController extends Controller
             // Only regenerate when the figure actually changed — rebuilding
             // wipes and rewrites every generated row, and doing that on an
             // unrelated edit would churn the farm's history for nothing.
+            // The field shows TOTAL feed used — prior feed plus everything
+            // recorded since — so the recorded part is taken back off before
+            // this is stored, exactly as the store field does with its
+            // remainder. Without it, saving the form unchanged would read the
+            // total back as prior feed and regenerate history from it: 1150
+            // prior + 20 recorded would be stored as 1170 prior, then 1190,
+            // climbing on every save.
+            $recorded = app(\App\Services\FarmStoreService::class)
+                ->recordedFeedFor($farm);
+
             $entered = $request->filled('feed_used_before')
-                ? (float) $request->input('feed_used_before')
+                ? max(0.0, round((float) $request->input('feed_used_before') - $recorded, 2))
                 : null;
 
             if ($entered !== null && (float) ($farm->feed_used_before ?? 0) !== $entered) {

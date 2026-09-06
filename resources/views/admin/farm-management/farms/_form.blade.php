@@ -66,10 +66,13 @@
     {{-- Feed already used. Mirrors the app's field: a farm stocked in the past
          has history nobody recorded, and one figure fills it in. --}}
     <div class="col-md-4 form-group">
-        <label for="feed_used_before">Feed Already Used (kg)</label>
+        <label for="feed_used_before">Total Feed Used (kg)</label>
         <input type="number" step="0.01" min="0" class="form-control"
             id="feed_used_before" name="feed_used_before"
-            value="{{ old('feed_used_before', $farm->feed_used_before ?? '') }}">
+            value="{{ old('feed_used_before', isset($farm->id)
+                ? round((float) ($farm->feed_used_before ?? 0)
+                    + app(App\Services\FarmStoreService::class)->recordedFeedFor($farm), 2)
+                : '') }}">
         <small class="text-muted">
             @isset($farm)
                 Changing this rebuilds the generated history. Feed recorded by hand is kept.

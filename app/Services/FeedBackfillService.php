@@ -74,7 +74,14 @@ class FeedBackfillService
                 return;
             }
 
-            $days = $start->diffInDays($today) + 1; // inclusive of both ends
+            // Stocking date through YESTERDAY — today is deliberately left
+            // out. The farmer enters this figure as "feed already used", which
+            // they can only know up to the end of yesterday; today's meals are
+            // still ahead of them and get recorded by hand on the tank screen.
+            // Including today both invented a value for a day that had not
+            // happened and diluted every earlier day, because the same total
+            // was split across an extra day's meal slots.
+            $days = $start->diffInDays($today);
 
             // How many meal slots the whole range comes to. The split is per
             // MEAL so every generated meal carries the same quantity.

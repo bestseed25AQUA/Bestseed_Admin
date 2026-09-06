@@ -529,13 +529,35 @@ class FarmController extends Controller
             $tank->stocking_date = $row['stocking_date'];
             $tank->save();
 
+            // Open the tank's first crop cycle, exactly as creating the farm
+            // does. This was missing, and cost two things at once: the tank
+            // read as INACTIVE on its history screen — batch_active is
+            // `$batch ? $batch->isOpen() : false`, and no batch means false,
+            // even while the grid showed it active from tanks.status — and
+            // every backfilled row landed at batch_id NULL, so the farm's
+            // Total Feed Used ignored it and the tank reported 0 kgs.
+            $batch = TankBatch::create([
+                'tank_id'          => $tank->id,
+                'farm_id'          => $farm->id,
+                'batch_no'         => 1,
+                'stocking_date'    => $row['stocking_date'],
+                'feed_used_before' => $row['feed_used_before'] > 0
+                    ? $row['feed_used_before']
+                    : null,
+                'started_at'       => now(),
+                'ended_at'         => null,
+            ]);
+
             // Same flow as a tank created with the farm: a past stocking date
-            // gets its own history generated, one row per meal.
+            // gets its own history generated, one row per meal. The batch is
+            // passed explicitly rather than left to currentFor(), so the rows
+            // cannot be orphaned if that lookup ever changes.
             $backfill->applyForTank(
                 $farm,
                 $tank->id,
                 $row['stocking_date'],
-                $row['feed_used_before']
+                $row['feed_used_before'],
+                $batch->id
             );
 
             $created++;
@@ -939,6 +961,8 @@ class FarmController extends Controller
             // {stocking_date, feed_used_before}. Decoded and validated in
             // tanksMetaFrom(); a multipart form cannot carry nested arrays.
             'new_tanks_meta' => 'nullable|string',
+            // JSON array of the stored image urls to keep; see the merge below.
+            'kept_images'    => 'nullable|string',
             // Corrections to tanks the farm already has, as a JSON array of
             // {id, stocking_date, feed_used_before}.
             'existing_tanks_meta' => 'nullable|string',
@@ -969,9 +993,14 @@ class FarmController extends Controller
         try {
             //$farm = Farm::findOrFail($id);
             $farm = Farm::with('images')->find($id);
-            $previous_farm_images= $farm->images->images;
-            //dd($previous_farm_images); //farmer_id
-            $previous_farm_images_array= json_decode($previous_farm_images);
+
+            // A farm may legitimately have no farm_images row: photos are
+            // optional, and a row can be missing on older or repaired data.
+            // Reading ->images->images straight off null threw
+            // "Attempt to read property images on null" and 500'd the whole
+            // update, so editing such a farm was impossible.
+            $previous_farm_images = optional($farm->images)->images;
+            $previous_farm_images_array = json_decode((string) $previous_farm_images) ?: [];
            // dd($previous_farm_images_array); //farmer_id
 
             //get farm images
@@ -1100,7 +1129,34 @@ class FarmController extends Controller
                 }
                 //multiple farm image upload end
 
-                $merged_array= array_merge($previous_farm_images_array,$imagePaths);
+                // Which of the stored photos survived the edit.
+                //
+                // This used to be a straight append of old + new, so a photo
+                // could never be removed once saved: the app offered no delete
+                // on an already-uploaded image because pressing it would have
+                // changed nothing. The app now posts `kept_images` — the urls
+                // still on screen when Save was pressed — and anything absent
+                // from that list is dropped.
+                //
+                // Omitted entirely (an older app build) means "keep them all",
+                // so the previous append behaviour still applies.
+                $kept = $previous_farm_images_array;
+
+                if ($request->has('kept_images')) {
+                    $requestedKeep = json_decode((string) $request->input('kept_images'), true);
+
+                    if (is_array($requestedKeep)) {
+                        // Intersect rather than trust the list outright, so a
+                        // malformed payload cannot inject a url the farm never
+                        // had.
+                        $kept = array_values(array_intersect(
+                            (array) $previous_farm_images_array,
+                            $requestedKeep
+                        ));
+                    }
+                }
+
+                $merged_array = array_merge($kept, $imagePaths);
             //if image is uploaded at the time of edit end
 
             
@@ -1109,8 +1165,14 @@ class FarmController extends Controller
             //update farm image
             if($farm){
 
-                    FarmImage::where('farm_id',$farm->id)
-                              ->update([ 'images' => json_encode($merged_array)]);
+                    // updateOrCreate, not update(): a farm with no
+                    // farm_images row would otherwise match nothing, and the
+                    // photo the farmer just uploaded would be reported as
+                    // saved while quietly going nowhere.
+                    FarmImage::updateOrCreate(
+                        ['farm_id' => $farm->id],
+                        ['images'  => json_encode($merged_array)]
+                    );
 
                 }
 

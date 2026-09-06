@@ -35,6 +35,7 @@
                                         <option value="Main Office" {{ old('label', $contact->label) == 'Main Office' ? 'selected' : '' }}>Main Office (Home screen)</option>
                                         <option value="Profile Help" {{ old('label', $contact->label) == 'Profile Help' ? 'selected' : '' }}>Profile Help (Profile → Help)</option>
                                         <option value="Booking Help" {{ old('label', $contact->label) == 'Booking Help' ? 'selected' : '' }}>Booking Help (Booking details → Call)</option>
+                                        <option value="Farm Management Help" {{ old('label', $contact->label) == 'Farm Management Help' ? 'selected' : '' }}>Farm Management Help (Farm Management → Contact Us)</option>
                                     </select>
                                     @error('label')
                                         <span class="invalid-feedback d-block"><strong>{{ $message }}</strong></span>
