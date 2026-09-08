@@ -13,6 +13,8 @@ class Manager extends Model
         'create_access',
         'view_access',
         'edit_access',
+        'tank_status_access',
+        'total_feed_access',
         'delete_access',
         'is_partner',
     ];

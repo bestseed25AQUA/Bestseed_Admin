@@ -183,6 +183,8 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::delete('admin/farm-management/farms/{farm}/force', [FarmManagementController::class, 'forceDestroy'])->name('farm-management.farms.force-destroy');
 
     Route::get('admin/farm-management/team', [FarmTeamController::class, 'index'])->name('farm-management.team.index');
+    // Before /team/{member}/edit, so "lookup" cannot be read as a member id.
+    Route::get('admin/farm-management/team/lookup', [FarmTeamController::class, 'lookup'])->name('farm-management.team.lookup');
     Route::get('admin/farm-management/team/create', [FarmTeamController::class, 'create'])->name('farm-management.team.create');
     Route::post('admin/farm-management/team', [FarmTeamController::class, 'store'])->name('farm-management.team.store');
     Route::get('admin/farm-management/team/{member}/edit', [FarmTeamController::class, 'edit'])->name('farm-management.team.edit');

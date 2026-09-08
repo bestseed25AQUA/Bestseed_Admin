@@ -126,7 +126,7 @@
         <li class="nav-item {{ $farmMgmtActive ? 'active' : '' }}">
             <a class="nav-link" data-toggle="collapse" href="#farmManagement"
                 aria-expanded="{{ $farmMgmtActive ? 'true' : 'false' }}" aria-controls="farmManagement">
-                <i class="fas fa-water menu-icon"></i>
+                <i class="fas fa-fish menu-icon"></i>
                 <span class="menu-title">Farm Management</span>
                 <i class="menu-arrow"></i>
             </a>

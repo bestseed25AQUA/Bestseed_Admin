@@ -4,7 +4,7 @@
     <div class="content-wrapper">
         <div class="page-header">
             <h3 class="page-title d-flex align-items-center">
-                <i class="fas fa-water mr-2"></i>{{ $farm->farm_name }}
+                <i class="fas fa-fish mr-2"></i>{{ $farm->farm_name }}
             </h3>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
@@ -26,11 +26,22 @@
                 ];
             @endphp
             @foreach ($cards as [$label, $value, $icon, $colour])
-                <div class="col-md-3 mb-3">
-                    <div class="card">
+                {{-- h-100 on the card, and the column as a flex box for it to
+                     fill. Without it each card is only as tall as its own text,
+                     so "0 managers, 0 partners" wrapping to two lines left that
+                     one card taller than the three beside it and the strip
+                     looked ragged along the bottom. --}}
+                <div class="col-md-3 mb-3 d-flex">
+                    <div class="card h-100 w-100">
                         <div class="card-body d-flex align-items-center">
-                            <i class="fas {{ $icon }} fa-2x text-{{ $colour }} mr-3"></i>
-                            <div>
+                            {{-- Fixed width, so the labels start on the same
+                                 x-position in every card however wide the glyph
+                                 happens to be. --}}
+                            <i class="fas {{ $icon }} fa-2x text-{{ $colour }} mr-3 text-center"
+                               style="width:34px; flex:0 0 34px;"></i>
+                            {{-- min-width:0 lets a long value wrap inside the flex row instead of
+                                 pushing the card wider. Bootstrap 4 has no min-w-0 utility. --}}
+                            <div style="min-width:0;">
                                 <small class="text-muted d-block">{{ $label }}</small>
                                 <strong>{{ $value }}</strong>
                             </div>
@@ -60,8 +71,17 @@
                 <div class="tab-content pt-3">
                     {{-- ---------------------------------------------------- Details --}}
                     <div class="tab-pane fade show active" id="tab-details">
-                        <table class="table table-sm">
-                            <tr><th style="width:220px">Farm ID</th><td>{{ $farm->id }}</td></tr>
+                        {{-- colgroup + fixed layout, so the label column is
+                             exactly 220px on every row. width on a single <th>
+                             is only a hint under auto layout: the browser still
+                             sizes the column to the widest label, so the gap
+                             between labels and values drifted. --}}
+                        <table class="table table-sm farm-details">
+                            <colgroup>
+                                <col style="width:220px">
+                                <col>
+                            </colgroup>
+                            <tr><th>Farm ID</th><td>{{ $farm->id }}</td></tr>
                             <tr><th>Farm Name</th><td>{{ $farm->farm_name }}</td></tr>
                             <tr>
                                 <th>Owner</th>
@@ -363,7 +383,7 @@
                                                     </select>
                                                 </div>
                                                 <label class="d-block"><strong>What they may do</strong></label>
-                                                @include('admin.farm-management.partials._permissions', ['values' => ['view_access' => 1]])
+                                                @include('admin.farm-management.partials._permissions', ['values' => null])
                                             </div>
                                         </div>
 
@@ -550,4 +570,21 @@
     </script>
 
     @include('admin.farm-management.partials._table-scripts', ['entity' => 'records'])
+@endpush
+
+@push('styles')
+    <style>
+        /* Fixed layout makes the colgroup widths binding rather than advisory. */
+        .farm-details { table-layout: fixed; }
+
+        /* Rows differ in height — Owner and Status carry a badge, the rest are
+           plain text — so without this the label sat on the top edge of the tall
+           rows and the two columns read as unaligned. */
+        .farm-details th,
+        .farm-details td { vertical-align: middle; }
+
+        /* A long farm name or owner should wrap inside its cell rather than
+           force the table wider than the card. */
+        .farm-details td { word-break: break-word; }
+    </style>
 @endpush

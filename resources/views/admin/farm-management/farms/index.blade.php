@@ -4,7 +4,7 @@
     <div class="content-wrapper">
         <div class="page-header">
             <h3 class="page-title d-flex align-items-center">
-                <i class="fas fa-water mr-2"></i>Farms
+                <i class="fas fa-fish mr-2"></i>Farms
             </h3>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">

@@ -10,7 +10,9 @@ use App\Models\Feed;
 use App\Models\Manager;
 use App\Models\Tank;
 use App\Services\FarmStoreService;
+use App\Services\FarmTankEditService;
 use App\Services\FeedBackfillService;
+use Carbon\Carbon;
 use App\Services\TankBatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -100,16 +102,45 @@ class FarmManagementController extends Controller
 
             // The app creates a farm's tanks with it; admin must too, or the
             // farmer opens a farm with nowhere to record feed.
-            $tankIds = $this->createTanks($farm, (int) $request->input('no_of_tanks'));
+            //
+            // Two shapes are accepted. `tanks_meta` carries a stocking date
+            // and prior-feed figure PER TANK, which is what the form now
+            // sends and what the app has always sent — tanks are stocked as
+            // ponds are prepared, not all on one day. Without it we fall back
+            // to the old behaviour: a count, one shared date, and one total
+            // spread across everything.
+            $meta = $this->tanksMetaFrom($request);
 
-            // A farm stocked weeks ago has history nothing recorded. One
-            // figure spreads across every tank and every day since stocking,
-            // exactly as it does in the app.
-            $this->backfill->apply(
-                $farm,
-                $tankIds,
-                (float) $request->input('feed_used_before', 0)
-            );
+            if ($meta !== []) {
+                $tankIds = $this->createTanksFromMeta($farm, $meta);
+
+                // The farm's own date follows its tanks — the earliest of
+                // them — so it cannot claim to have started on a day none of
+                // its tanks did.
+                $earliest = collect($meta)
+                    ->pluck('stocking_date')
+                    ->filter()
+                    ->sort()
+                    ->first();
+
+                if ($earliest) {
+                    $farm->forceFill(['stocking_date' => $earliest])->save();
+                }
+            } else {
+                $tankIds = $this->createTanks(
+                    $farm,
+                    (int) $request->input('no_of_tanks')
+                );
+
+                // A farm stocked weeks ago has history nothing recorded. One
+                // figure spreads across every tank and every day since
+                // stocking, exactly as it does in the app.
+                $this->backfill->apply(
+                    $farm,
+                    $tankIds,
+                    (float) $request->input('feed_used_before', 0)
+                );
+            }
 
             Log::info('Admin created farm', ['farm_id' => $farm->id]);
 
@@ -156,9 +187,15 @@ class FarmManagementController extends Controller
 
     public function edit($id)
     {
+        $farm = Farm::findOrFail($id);
+
         return view('admin.farm-management.farms.edit', [
-            'farm'    => Farm::findOrFail($id),
+            'farm'    => $farm,
             'farmers' => Farmer::orderBy('first_name')->get(),
+            // The form edits each tank's own stocking date and prior feed,
+            // the way the app does, rather than one figure for the whole farm.
+            'tanks'   => Tank::where('farm_id', $farm->id)->orderBy('id')->get(),
+            'backfill'=> app(FeedBackfillService::class),
         ]);
     }
 
@@ -204,7 +241,30 @@ class FarmManagementController extends Controller
                 ? max(0.0, round((float) $request->input('feed_used_before') - $recorded, 2))
                 : null;
 
-            if ($entered !== null && (float) ($farm->feed_used_before ?? 0) !== $entered) {
+            // Per-tank corrections, the same shape and rules as the app's
+            // edit screen. FarmTankEditService is shared with the API so both
+            // rewrite generated history — and preserve hand-recorded feed —
+            // identically.
+            $existing = json_decode((string) $request->input('existing_tanks_meta', ''), true);
+            $tanksChanged = is_array($existing)
+                ? app(FarmTankEditService::class)->applyExistingEdits($farm, $existing)
+                : 0;
+
+            // Tanks being ADDED from the same form.
+            $added = 0;
+            $newMeta = $this->tanksMetaFrom($request, 'new_tanks_meta');
+
+            if ($newMeta !== []) {
+                $added = count($this->appendTanksFromMeta($farm, $newMeta));
+            }
+
+            // The farm-wide figure is the OLD way of saying the same thing, so
+            // it only runs when the form sent no per-tank rows. Applying both
+            // would rewrite every tank's history twice from disagreeing
+            // numbers.
+            if ($tanksChanged === 0 && $added === 0
+                && $entered !== null
+                && (float) ($farm->feed_used_before ?? 0) !== $entered) {
                 $this->backfill->clear($farm);
 
                 $this->backfill->apply(
@@ -214,8 +274,22 @@ class FarmManagementController extends Controller
                 );
             }
 
+            // The farm's own date follows its tanks — the earliest of them.
+            $earliest = Tank::where('farm_id', $farm->id)
+                ->whereNotNull('stocking_date')
+                ->min('stocking_date');
+
+            if ($earliest) {
+                $farm->forceFill(['stocking_date' => $earliest])->save();
+            }
+
+            $msg = 'Farm updated successfully.';
+            if ($added > 0) {
+                $msg = 'Farm updated. ' . $added . ' tank(s) added.';
+            }
+
             return redirect()->route('farm-management.farms.show', $farm->id)
-                ->with('success', 'Farm updated successfully.');
+                ->with('success', $msg);
         } catch (\Exception $e) {
             Log::error('Admin farm update failed', ['farm_id' => $id, 'error' => $e->getMessage()]);
 
@@ -371,6 +445,161 @@ class FarmManagementController extends Controller
      *
      * Returns the new tank ids so a feed backfill can be spread across them.
      */
+    /**
+     * Decode the form's per-tank rows.
+     *
+     * `[{"stocking_date":"2026-08-20","feed_used_before":"450"}, ...]` — the
+     * same shape the app posts, so both sides describe a farm the same way.
+     * A malformed or absent payload returns [] and the caller falls back to
+     * the flat count-plus-shared-date path rather than creating nothing.
+     *
+     * @return array<int, array{stocking_date: ?string, feed_used_before: float}>
+     */
+    private function tanksMetaFrom(Request $request, string $key = 'tanks_meta'): array
+    {
+        $raw = $request->input($key);
+
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $date = $row['stocking_date'] ?? null;
+
+            // Anything unparseable becomes null rather than throwing: a tank
+            // with no date is still a tank, it simply generates no history.
+            if (is_string($date) && trim($date) !== '') {
+                try {
+                    $date = Carbon::parse($date)->toDateString();
+                } catch (\Throwable $e) {
+                    $date = null;
+                }
+            } else {
+                $date = null;
+            }
+
+            $rows[] = [
+                'stocking_date'    => $date,
+                'feed_used_before' => max(0.0, (float) ($row['feed_used_before'] ?? 0)),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Create one tank per entry, each with its own date, batch and history.
+     *
+     * The batch is opened BEFORE the backfill and passed to it explicitly:
+     * generated rows must belong to a crop cycle, and a tank without one
+     * leaves every row at batch_id NULL where the farm's totals ignore it.
+     *
+     * @param  array<int, array{stocking_date: ?string, feed_used_before: float}>  $meta
+     * @return array<int, int>  the tank ids created
+     */
+    private function createTanksFromMeta(Farm $farm, array $meta): array
+    {
+        $ids     = [];
+        $batches = app(TankBatchService::class);
+
+        foreach ($meta as $i => $row) {
+            $tank = Tank::create([
+                'farm_id'       => $farm->id,
+                'tank_name'     => 'Tank' . ($i + 1),
+                'status'        => 1,
+                'stocking_date' => $row['stocking_date'],
+            ]);
+
+            $batch = $batches->open(
+                $tank,
+                $row['stocking_date'],
+                $row['feed_used_before']
+            );
+
+            // Only a tank stocked in the PAST has history to account for;
+            // applyForTank returns quietly for today or later, and for a zero
+            // figure, so no guard is needed here.
+            $this->backfill->applyForTank(
+                $farm,
+                $tank->id,
+                $row['stocking_date'],
+                $row['feed_used_before'],
+                $batch->id
+            );
+
+            $ids[] = $tank->id;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Add tanks to a farm that already has some.
+     *
+     * Numbered on from the highest existing tank, so Tank1..Tank5 gains Tank6
+     * — the new one lands after the last rather than colliding with a name
+     * still sitting in the farm's feed history. Existing tanks are untouched.
+     *
+     * @param  array<int, array{stocking_date: ?string, feed_used_before: float}>  $meta
+     * @return array<int, int>  the tank ids created
+     */
+    private function appendTanksFromMeta(Farm $farm, array $meta): array
+    {
+        if (empty($meta)) {
+            return [];
+        }
+
+        $highest = 0;
+        foreach (Tank::where('farm_id', $farm->id)->pluck('tank_name') as $name) {
+            if (preg_match('/(\d+)\s*$/', (string) $name, $m)) {
+                $highest = max($highest, (int) $m[1]);
+            }
+        }
+        $highest = max($highest, Tank::where('farm_id', $farm->id)->count());
+
+        $ids     = [];
+        $batches = app(TankBatchService::class);
+
+        foreach ($meta as $row) {
+            $tank = Tank::create([
+                'farm_id'       => $farm->id,
+                'tank_name'     => 'Tank' . (++$highest),
+                'status'        => 1,
+                'stocking_date' => $row['stocking_date'],
+            ]);
+
+            $batch = $batches->open(
+                $tank,
+                $row['stocking_date'],
+                $row['feed_used_before']
+            );
+
+            $this->backfill->applyForTank(
+                $farm,
+                $tank->id,
+                $row['stocking_date'],
+                $row['feed_used_before'],
+                $batch->id
+            );
+
+            $ids[] = $tank->id;
+        }
+
+        return $ids;
+    }
+
     private function createTanks(Farm $farm, int $count): array
     {
         if ($count < 1) {
@@ -411,6 +640,12 @@ class FarmManagementController extends Controller
             'farmer_id'      => 'required|integer|exists:farmers,id',
             'stocking_date'  => 'nullable|date',
             'no_of_tanks'    => 'nullable|integer|min:0',
+            // Per-tank stocking dates and prior feed, as JSON — the same shape
+            // the app posts. See createTanksFromMeta().
+            'tanks_meta'     => 'nullable|string',
+            // Corrections to tanks the farm already has, and tanks being added.
+            'existing_tanks_meta' => 'nullable|string',
+            'new_tanks_meta'      => 'nullable|string',
             'store'          => 'nullable|numeric|min:0',
             'low_feed_limit' => 'nullable|numeric|min:0',
             'feed_used_before' => 'nullable|numeric|min:0',

@@ -121,7 +121,14 @@
 
                     <form action="{{ route('farm-management.tanks.feed.store', [$farm->id, $tank->id]) }}" method="POST">
                         @csrf
-                        <div class="row align-items-end">
+                        {{-- align-items-start, not -end. Meal number carries a
+                             hint under its input, so it is taller than the
+                             other columns — aligning BOTTOMS pushed that whole
+                             column up and left its label and box out of line
+                             with Date and Feed Quantity. Aligning tops puts
+                             every label on one line and every input on the
+                             next, and the hint hangs below its own field. --}}
+                        <div class="row align-items-start">
                             <div class="col-md-3 form-group">
                                 <label>Date</label>
                                 <input type="date" name="feed_date" class="form-control"
@@ -142,6 +149,10 @@
                                     value="{{ old('feed_quantity') }}" required>
                             </div>
                             <div class="col-md-3 form-group">
+                                {{-- Empty label: with tops aligned the button
+                                     would otherwise sit on the label line
+                                     rather than beside the inputs. --}}
+                                <label class="d-none d-md-block" aria-hidden="true">&nbsp;</label>
                                 <button type="submit" class="btn btn-primary btn-block">
                                     <i class="fas fa-plus mr-1"></i> Add Entry
                                 </button>
