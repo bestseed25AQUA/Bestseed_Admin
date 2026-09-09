@@ -383,7 +383,13 @@
                                                     </select>
                                                 </div>
                                                 <label class="d-block"><strong>What they may do</strong></label>
-                                                @include('admin.farm-management.partials._permissions', ['values' => null])
+                                                {{-- Starts as Manager, matching the select above; the
+                                                     partial's script re-applies the default if that is
+                                                     switched to Partner. --}}
+                                                @include('admin.farm-management.partials._permissions', [
+                                                    'values' => null,
+                                                    'isPartner' => false,
+                                                ])
                                             </div>
                                         </div>
 
@@ -499,11 +505,19 @@
                                                                 </div>
                                                                 <div class="col-md-6 form-group mb-2">
                                                                     <label class="small mb-1 d-block">What they may do</label>
+                                                                    {{-- Every column the form saves has to be listed
+                                                                         here. tank_status_access and total_feed_access
+                                                                         were missing, so they rendered unchecked
+                                                                         whatever the member actually held — and the
+                                                                         hidden value="0" beside each box then stripped
+                                                                         both on save. --}}
                                                                     @include('admin.farm-management.partials._permissions', ['values' => [
-                                                                        'view_access'   => $member->view_access,
-                                                                        'edit_access'   => $member->edit_access,
-                                                                        'create_access' => $member->create_access,
-                                                                        'delete_access' => $member->delete_access,
+                                                                        'view_access'        => $member->view_access,
+                                                                        'edit_access'        => $member->edit_access,
+                                                                        'tank_status_access' => $member->tank_status_access,
+                                                                        'total_feed_access'  => $member->total_feed_access,
+                                                                        'create_access'      => $member->create_access,
+                                                                        'delete_access'      => $member->delete_access,
                                                                     ]])
                                                                 </div>
                                                             </div>

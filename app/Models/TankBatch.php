@@ -20,6 +20,7 @@ class TankBatch extends Model
         'batch_no',
         'stocking_date',
         'feed_used_before',
+        'harvest_quantity',
         'started_at',
         'ended_at',
     ];
@@ -29,6 +30,36 @@ class TankBatch extends Model
         'started_at'    => 'datetime',
         'ended_at'      => 'datetime',
     ];
+
+    /**
+     * Every kilo this crop was fed.
+     *
+     * Includes generated back-history: that feed was genuinely eaten before the
+     * app started recording, so leaving it out would flatter the ratio.
+     */
+    public function totalFeed(): float
+    {
+        return (float) Feed::where('batch_id', $this->id)->sum('feed_quantity');
+    }
+
+    /**
+     * Feed Conversion Ratio — kilos of feed per kilo harvested.
+     *
+     * Null when it cannot be stated rather than 0: an unweighed harvest is not
+     * a ratio of zero, and dividing by a zero harvest is undefined. Every
+     * screen that shows FCR asks this one method, so the app, the report and
+     * the admin panel cannot quote different numbers for the same crop.
+     */
+    public function fcr(): ?float
+    {
+        $harvest = (float) ($this->harvest_quantity ?? 0);
+
+        if ($harvest <= 0) {
+            return null;
+        }
+
+        return round($this->totalFeed() / $harvest, 2);
+    }
 
     /** Still running — the tank is stocked and being fed. */
     public function isOpen(): bool

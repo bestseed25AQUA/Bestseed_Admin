@@ -76,7 +76,11 @@
 <label class="d-block"><strong>What they may do on this farm</strong></label>
 {{-- No $values when creating: the partial applies the same defaults the
      app's Setup Access screen uses. --}}
-@include('admin.farm-management.partials._permissions', ['values' => $member ?? null])
+@include('admin.farm-management.partials._permissions', [
+    'values' => $member ?? null,
+    // $currentRole is the is_partner select's value, resolved above.
+    'isPartner' => (string) $currentRole === '1',
+])
 
 @push('scripts')
     <script>

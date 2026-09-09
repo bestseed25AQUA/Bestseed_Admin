@@ -30,8 +30,17 @@
             </nav>
         </div>
 
+        @php
+            // The batch being looked at is what the figures below describe, so
+            // its result belongs beside them. Both stay null until the harvest
+            // is weighed — a dash says "not weighed", where 0.00 would read as
+            // a remarkably good crop.
+            $batchFcr     = $selected?->fcr();
+            $batchHarvest = $selected?->harvest_quantity;
+        @endphp
+
         <div class="row mb-4">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card">
                     <div class="card-body">
                         <h5 class="mb-0">{{ number_format((float) $tank->total_feed_used, 2) }} kg</h5>
@@ -39,7 +48,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card">
                     <div class="card-body">
                         <h5 class="mb-0">{{ $entries->pluck('feed_date')->unique()->count() }}</h5>
@@ -47,11 +56,28 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card">
                     <div class="card-body">
                         <h5 class="mb-0">{{ $tank->stocking_date ? date('d-m-Y', strtotime($tank->stocking_date)) : '-' }}</h5>
                         <small class="text-muted">Stocking date</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="mb-0 {{ is_null($batchFcr) ? 'text-muted' : 'text-success' }}">
+                            {{ is_null($batchFcr) ? '-' : number_format($batchFcr, 2) }}
+                        </h5>
+                        <small class="text-muted">
+                            FCR
+                            @if (!is_null($batchHarvest))
+                                &middot; {{ number_format((float) $batchHarvest, 2) }} kg harvested
+                            @else
+                                &middot; harvest not recorded
+                            @endif
+                        </small>
                     </div>
                 </div>
             </div>
@@ -73,7 +99,8 @@
                             <thead>
                                 <tr>
                                     <th>Batch</th><th>Stocked</th><th>Finished</th>
-                                    <th>Days fed</th><th>Feed used</th><th>Status</th>
+                                    <th>Days fed</th><th>Feed used</th>
+                                    <th>Harvest</th><th>FCR</th><th>Status</th>
                                     <th class="text-center">Records</th>
                                 </tr>
                             </thead>
@@ -85,6 +112,21 @@
                                         <td>{{ optional($batch->ended_at)->format('d-m-Y') ?? '-' }}</td>
                                         <td>{{ $batch->fed_days }}</td>
                                         <td>{{ $batch->feed_total }}</td>
+                                        <td>
+                                            @if (!is_null($batch->harvest_quantity))
+                                                {{ number_format((float) $batch->harvest_quantity, 2) }} kg
+                                            @else
+                                                <span class="text-muted">-</span>
+                                            @endif
+                                        </td>
+                                        <td>
+                                            @php $rowFcr = $batch->fcr(); @endphp
+                                            @if (!is_null($rowFcr))
+                                                <span class="font-weight-bold text-success">{{ number_format($rowFcr, 2) }}</span>
+                                            @else
+                                                <span class="text-muted">-</span>
+                                            @endif
+                                        </td>
                                         <td>
                                             @if ($batch->ended_at)
                                                 <span class="badge bg-secondary">Finished</span>

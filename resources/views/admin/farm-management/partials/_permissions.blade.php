@@ -5,6 +5,10 @@
     $values — array|object carrying view_access/edit_access/create_access/delete_access
 --}}
 @php
+    // Whether the person being set up is a PARTNER. Decides one default below.
+    // Null when the caller did not say, which is treated as a manager.
+    $isPartner = (bool) ($isPartner ?? false);
+
     // Order matches the app's Setup Access screen.
     $abilities = [
         'view_access'        => ['View', 'See the farm, its tanks and feed history'],
@@ -18,15 +22,17 @@
     //   View  — on: there is no point admitting someone who cannot look.
     //   Edit  — on: a manager is brought in to run the farm day to day, and
     //           correcting what a tank was fed is the core of that.
-    //   Tank Active/Inactive — off: marking a tank inactive HARVESTS it, closing
-    //           that tank's crop cycle, so it is handed over deliberately.
+    //   Tank Active/Inactive — depends on the role. Marking a tank inactive
+    //           HARVESTS it, closing that tank's crop cycle: a partner's call
+    //           to make, so they get it with the role, while a manager is
+    //           handed it deliberately and starts without it.
     //   Total Feed — off: the store figure drives the low-feed alerts and every
     //           remaining-stock number, so it is handed over deliberately too.
     //   Create, Delete — off, for the same reason.
     $newMemberDefaults = [
         'view_access'        => 1,
         'edit_access'        => 1,
-        'tank_status_access' => 0,
+        'tank_status_access' => $isPartner ? 1 : 0,
         'total_feed_access'  => 0,
         'create_access'      => 0,
         'delete_access'      => 0,
@@ -41,11 +47,14 @@
     // that form then stripped them.
     if ($values instanceof \Illuminate\Contracts\Support\Arrayable) {
         $current = $values->toArray();
+        $isNewMember = false;
     } elseif (is_array($values)) {
         $current = $values;
+        $isNewMember = false;
     } else {
         // Nothing passed: this is a new member.
         $current = $newMemberDefaults;
+        $isNewMember = true;
     }
 
     // The farm detail page includes this once per member row alongside the
@@ -67,6 +76,8 @@
                 <input type="hidden" name="{{ $field }}" value="0">
                 <input class="form-check-input" type="checkbox" id="{{ $uid }}_{{ $field }}"
                     name="{{ $field }}" value="1"
+                    data-perm="{{ $field }}"
+                    @if ($isNewMember) data-role-default @endif
                     {{ old($field, $current[$field] ?? 0) ? 'checked' : '' }}>
                 <label class="form-check-label" for="{{ $uid }}_{{ $field }}">
                     <strong>{{ $label }}</strong>
@@ -76,3 +87,50 @@
         </div>
     @endforeach
 </div>
+
+
+{{-- Keep the Tank Active/Inactive default in step with the role picker.
+
+     The role is chosen on the same form as these boxes, so a server-side
+     default alone would be stale the moment someone switched Manager to
+     Partner — they would have to know to tick the box themselves. This only
+     ever touches a NEW member's box, and stops as soon as the box is ticked by
+     hand, so a deliberate choice is never overwritten.
+
+     @once because the partial is included once per member row on the farm
+     page; without it the same listener would be attached a dozen times. --}}
+@once
+    @push('scripts')
+        <script>
+            (function () {
+                function isPartner(select) {
+                    var v = String(select.value).toLowerCase();
+                    return v === 'partner' || v === '1';
+                }
+
+                document.addEventListener('change', function (e) {
+                    var el = e.target;
+                    if (!el || el.tagName !== 'SELECT') return;
+                    if (el.name !== 'role' && el.name !== 'is_partner') return;
+
+                    var form = el.closest('form');
+                    if (!form) return;
+
+                    var box = form.querySelector('input[data-perm="tank_status_access"][data-role-default]');
+                    if (!box || box.dataset.touched) return;
+
+                    box.checked = isPartner(el);
+                });
+
+                // Any hand-tick pins the box: the role picker leaves it alone
+                // from then on.
+                document.addEventListener('change', function (e) {
+                    var el = e.target;
+                    if (el && el.matches && el.matches('input[data-perm="tank_status_access"]')) {
+                        el.dataset.touched = '1';
+                    }
+                });
+            })();
+        </script>
+    @endpush
+@endonce

@@ -100,6 +100,33 @@
                 <span class="value">{{ number_format($totalQuantity, 2) }} kg</span>
             </td>
         </tr>
+        {{-- Only printed once the harvest has been weighed. Without a weight
+             there is no ratio to state, and a blank row says that better than
+             a "0.00" that would read as an excellent result. --}}
+        @if (!is_null($fcr ?? null) || !is_null($harvestQuantity ?? null))
+            <tr>
+                <td colspan="2">
+                    <span class="label">Total harvest</span>
+                    <span class="value">
+                        @if (!is_null($harvestQuantity ?? null))
+                            {{ number_format($harvestQuantity, 2) }} kg
+                        @else
+                            &mdash;
+                        @endif
+                    </span>
+                </td>
+                <td colspan="2">
+                    <span class="label">FCR (feed per kg harvested)</span>
+                    <span class="value">
+                        @if (!is_null($fcr ?? null))
+                            {{ number_format($fcr, 2) }}
+                        @else
+                            &mdash;
+                        @endif
+                    </span>
+                </td>
+            </tr>
+        @endif
     </table>
 
     <table class="days">

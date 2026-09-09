@@ -132,6 +132,15 @@ class TankFeedReportService
             'totalMeals'    => $totalMeals,
             'totalQuantity' => $totalQuantity,
             'fedDays'       => $fedDays,
+
+            // The crop's result. Both stay null when the harvest was never
+            // weighed — the report says nothing rather than printing a zero
+            // that would read as a real figure.
+            'harvestQuantity' => $batch?->harvest_quantity !== null
+                ? (float) $batch->harvest_quantity
+                : null,
+            'fcr'             => $batch?->fcr(),
+
             'generatedAt'   => now(),
         ];
     }

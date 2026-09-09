@@ -1475,6 +1475,10 @@ public function addTodaysQuantity(Request $request){
             // has already had.
             'stocking_date'    => 'nullable|date',
             'feed_used_before' => 'nullable|numeric|min:0',
+            // Only read when DEACTIVATING: what the crop weighed coming out.
+            // Optional — a farmer may harvest without weighing — and stored on
+            // the batch so FCR is that crop's feed divided by this.
+            'harvest_quantity' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -1542,6 +1546,15 @@ public function addTodaysQuantity(Request $request){
                 // Harvested. The batch closes and keeps its rows; the tank's
                 // totals fall to zero because nothing is running in it.
                 $open->ended_at = now();
+
+                // What it weighed, when the farmer gave a figure. Left alone
+                // otherwise: null means "not weighed", which is not the same
+                // as harvesting nothing, and a blank field must not wipe a
+                // figure recorded on an earlier attempt.
+                if ($request->filled('harvest_quantity')) {
+                    $open->harvest_quantity = (float) $request->input('harvest_quantity');
+                }
+
                 $open->save();
             }
 
@@ -1701,6 +1714,11 @@ public function addTodaysQuantity(Request $request){
                 $Tank->batch_no = $batch?->batch_no;
                 $Tank->batch_active = $batch ? $batch->isOpen() : false;
                 $Tank->batch_ended_at = optional($batch?->ended_at)->toIso8601String();
+
+                // What the crop weighed, and the ratio it implies. Both null
+                // until a harvest figure is recorded — see TankBatch::fcr().
+                $Tank->harvest_quantity = $batch?->harvest_quantity;
+                $Tank->fcr = $batch?->fcr();
 
                 $total_feeds_added_till_date = TankFeedHistory::where('tank_id', $Tank->id)
                                 ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
@@ -2561,6 +2579,8 @@ public function addTodaysQuantity(Request $request){
         $batchMeta = [
             'batch_id'  => $batch?->id,
             'batch_no'  => $batch?->batch_no,
+            'harvest_quantity' => $batch?->harvest_quantity,
+            'fcr'              => $batch?->fcr(),
             'is_active' => $batch ? $batch->isOpen() : false,
             'ended_at'  => optional($batch?->ended_at)->toIso8601String(),
         ];
