@@ -80,7 +80,29 @@ class FarmTankController extends Controller
         }
 
         try {
-            $tank->update($validator->validated());
+            $data = $validator->validated();
+
+            // `status` is pulled OUT and applied through TankBatchService.
+            //
+            // This used to mass-assign it with everything else, which moved the
+            // column without touching the batch — the exact split
+            // TankBatchService exists to prevent. Saving the edit form with
+            // Active selected on a harvested tank set status=1 while its batch
+            // stayed closed, and the two then disagreed for good: the app reads
+            // `tanks.status` for the tank's switch, so it showed ACTIVE, while
+            // every batch-aware surface still treated the crop as finished —
+            // and feed recorded against it landed on the harvested crop.
+            $wanted = (int) $data['status'];
+            unset($data['status']);
+
+            $tank->update($data);
+
+            if ((int) $tank->status !== $wanted) {
+                // Opens a new crop, or closes the running one, and moves the
+                // column with it. Idempotent, so this only ever runs on a real
+                // change.
+                app(TankBatchService::class)->setStatus($tank, $wanted);
+            }
 
             return redirect()->back()->with('success', 'Tank updated.');
         } catch (\Exception $e) {
@@ -202,6 +224,18 @@ class FarmTankController extends Controller
 
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        // An inactive tank has no crop to feed. The form is not rendered in
+        // that state, so reaching here means a stale page or a direct POST —
+        // answered with a sentence rather than the service's exception, which
+        // would surface as "Could not add the feed entry: ...".
+        if (!TankBatch::openFor((int) $tank->id)) {
+            return redirect()->back()->withInput()->with(
+                'error',
+                $tank->tank_name . ' is inactive, so there is no crop to record feed against. '
+                . 'Activate the tank to start a new crop first.'
+            );
         }
 
         try {

@@ -1312,7 +1312,24 @@ public function addTodaysQuantity(Request $request){
             // The crop cycle this feed belongs to. Without it the row would be
             // orphaned and disappear from the tank, which reads its history by
             // batch.
-            $currentBatchId = optional(TankBatch::currentFor((int) $tank_id))->id;
+            //
+            // openFor, NOT currentFor: currentFor falls back to the last
+            // FINISHED batch when nothing is running, so feed sent for an
+            // inactive tank appended itself to a harvested crop — changing that
+            // crop's total, moving its FCR after the fact, and running its
+            // report past its own harvest date. The app hides the add button on
+            // an inactive tank, but a stale screen could still post here.
+            $currentBatch = TankBatch::openFor((int) $tank_id);
+
+            if (!$currentBatch) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'This tank is inactive, so there is no crop to record feed against. '
+                        . 'Activate the tank to start a new crop first.',
+                ], 422);
+            }
+
+            $currentBatchId = $currentBatch->id;
 
             $feed->meals = $request->meals;
             $feed->feed_quantity = $request->feed_quantity;

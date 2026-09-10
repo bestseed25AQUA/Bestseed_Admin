@@ -18,6 +18,9 @@ class FarmAccessMember extends Model
         'granted_by',
         'manager_id',
         'role',
+        // What THIS farm calls them. Never the farmer's own name — see the
+        // migration that added it.
+        'display_name',
         'view_access',
         'edit_access',
         'tank_status_access',

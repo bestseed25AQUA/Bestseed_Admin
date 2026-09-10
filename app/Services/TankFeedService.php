@@ -8,6 +8,7 @@ use App\Models\TankBatch;
 use App\Models\TankFeedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * Every write to a tank's feed record goes through here.
@@ -39,7 +40,22 @@ class TankFeedService
         // Used counts only the feed of OPEN batches, and a tank's report is
         // built for one batch, so a row written without this reached neither.
         // Every entry the admin panel added would have vanished from the app.
-        $batchId = optional(TankBatch::currentFor($tankId))->id;
+        //
+        // openFor, NOT currentFor. currentFor falls back to the last FINISHED
+        // batch when nothing is running, so feeding an inactive tank quietly
+        // appended to a harvested crop: it changed that crop's total, moved its
+        // FCR after the fact, and pushed its report past its own harvest date.
+        // A tank with no crop in it has nowhere to put feed, so say so instead.
+        $batch = TankBatch::openFor($tankId);
+
+        if (!$batch) {
+            throw new RuntimeException(
+                'This tank is inactive, so it has no crop to record feed against. '
+                . 'Activate it to start a new crop first.'
+            );
+        }
+
+        $batchId = $batch->id;
 
         return DB::transaction(function () use ($tankId, $farmId, $day, $meals, $quantity, $batchId) {
             $row = [

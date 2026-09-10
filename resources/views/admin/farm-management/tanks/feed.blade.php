@@ -157,6 +157,34 @@
         @endif
 
         @permission('farm-management.create')
+            @php
+                // Whether this tank has a crop running. Feed rows carry a
+                // batch_id, so an inactive tank has nowhere to put one — see
+                // TankFeedService::record(), which refuses outright.
+                $openBatch = \App\Models\TankBatch::openFor((int) $tank->id);
+            @endphp
+
+            @if (!$openBatch)
+                {{-- The form is GONE, not disabled, because there is nothing
+                     valid to submit. It used to render regardless: an admin
+                     could add a meal to a harvested tank, and the entry
+                     attached itself to the finished crop — changing that crop's
+                     feed total and its FCR after the fact. --}}
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h4 class="card-title">Add a feed entry</h4>
+                        <div class="alert alert-warning mb-0">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            <strong>{{ $tank->tank_name }} is inactive</strong> — its last crop is
+                            finished, so there is no crop to record feed against. Activate the tank
+                            from the
+                            <a href="{{ route('farm-management.farms.show', $farm->id) }}">farm page</a>
+                            to start a new crop, then feed can be recorded again.
+                            The records below stay available to read and to report on.
+                        </div>
+                    </div>
+                </div>
+            @else
             <div class="card mb-4">
                 <div class="card-body">
                     <h4 class="card-title">Add a feed entry</h4>
@@ -203,6 +231,7 @@
                     </form>
                 </div>
             </div>
+            @endif
         @endpermission
 
         <div class="card">

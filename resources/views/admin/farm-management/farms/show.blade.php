@@ -420,12 +420,30 @@
                                         @foreach ($members as $member)
                                             @php
                                                 $person = $member->farmer;
+
+                                                // The farmer's own name, and what THIS farm calls
+                                                // them. The label wins here for the same reason it
+                                                // wins in the app: an owner who typed "Ramesh
+                                                // (pump shed)" should find that name on both
+                                                // screens, not one name here and another there.
+                                                $ownName = $person
+                                                    ? (trim($person->first_name . ' ' . $person->last_name) ?: 'Farmer #' . $person->id)
+                                                    : 'Farmer #' . $member->farmer_id;
+                                                $label = trim((string) $member->display_name);
                                             @endphp
                                             <tr>
                                                 <td>{{ $member->id }}</td>
                                                 <td>
-                                                    {{ $person ? (trim($person->first_name . ' ' . $person->last_name) ?: 'Farmer #' . $person->id) : 'Farmer #' . $member->farmer_id }}
-                                                    <div class="small text-muted">{{ optional($person)->mobile }}</div>
+                                                    {{ $label !== '' ? $label : $ownName }}
+                                                    <div class="small text-muted">
+                                                        {{ optional($person)->mobile }}
+                                                        {{-- Shown only when the two differ, so it is
+                                                             clear the row is labelled rather than
+                                                             the person renamed. --}}
+                                                        @if ($label !== '' && $label !== $ownName)
+                                                            &middot; registered as {{ $ownName }}
+                                                        @endif
+                                                    </div>
                                                 </td>
                                                 <td>
                                                     <span class="badge bg-{{ $member->role === 'partner' ? 'secondary' : 'info' }}">

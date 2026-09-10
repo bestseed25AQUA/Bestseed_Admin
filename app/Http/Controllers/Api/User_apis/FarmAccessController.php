@@ -132,6 +132,15 @@ class FarmAccessController extends Controller
             'mobiles'       => 'nullable|array',
             'mobiles.*'     => 'digits:10',
             'role'          => ['required', Rule::in(['manager', 'partner'])],
+            // What this farm calls each person, keyed by their 10-digit mobile:
+            // {"9876543210": "Ramesh"}. Keyed by number rather than parallel to
+            // the arrays above because a member can arrive through EITHER
+            // farmer_ids or mobiles, and the number is the one thing both carry.
+            //
+            // Saved on the membership row only. A farmer's own name is theirs;
+            // see the migration that added display_name.
+            'names'         => 'nullable|array',
+            'names.*'       => 'nullable|string|max:100',
             'view_access'        => 'nullable|boolean',
             'edit_access'        => 'nullable|boolean',
             'tank_status_access' => 'nullable|boolean',
@@ -197,10 +206,28 @@ class FarmAccessController extends Controller
             ], 403);
         }
 
+        // The names the caller typed, indexed by mobile. Digits only, so a
+        // number sent as "98765 43210" still matches the farmer it belongs to.
+        $names = [];
+        foreach ((array) $request->input('names', []) as $mobile => $name) {
+            $key = preg_replace('/\D/', '', (string) $mobile);
+            $trimmed = trim((string) $name);
+
+            if ($key !== '' && $trimmed !== '') {
+                $names[$key] = $trimmed;
+            }
+        }
+
+        // Each member's own number, so a name can be matched to them. One query
+        // rather than one per member.
+        $mobileFor = $names === []
+            ? []
+            : Farmer::whereIn('id', $farmerIds)->pluck('mobile', 'id')->all();
+
         $added = [];
 
         DB::transaction(function () use (
-            $request, $farm, $capped, $farmerIds, &$added
+            $request, $farm, $capped, $farmerIds, $names, $mobileFor, &$added
         ) {
             foreach ($farmerIds as $farmerId) {
                 // The owner does not need granting access to their own farm.
@@ -208,14 +235,26 @@ class FarmAccessController extends Controller
                     continue;
                 }
 
+                $attributes = array_merge($capped, [
+                    'granted_by' => $request->user()->id,
+                    'role'       => $request->input('role'),
+                    'expires_at' => null,
+                    'revoked_at' => null,
+                ]);
+
+                // Only written when a name was actually sent for this person.
+                // Assigning unconditionally would let an edit that does not
+                // carry names wipe a label someone had already set — the same
+                // reasoning as harvest_quantity on a tank.
+                $key = preg_replace('/\D/', '', (string) ($mobileFor[$farmerId] ?? ''));
+
+                if ($key !== '' && isset($names[$key])) {
+                    $attributes['display_name'] = $names[$key];
+                }
+
                 $member = FarmAccessMember::updateOrCreate(
                     ['farm_id' => $farm->id, 'farmer_id' => $farmerId],
-                    array_merge($capped, [
-                        'granted_by' => $request->user()->id,
-                        'role'       => $request->input('role'),
-                        'expires_at' => null,
-                        'revoked_at' => null,
-                    ])
+                    $attributes
                 );
 
                 $added[] = $member->id;
@@ -242,10 +281,22 @@ class FarmAccessController extends Controller
             ->where('farm_id', $farm->id)
             ->orderByDesc('id')
             ->get()
-            ->map(fn (FarmAccessMember $m) => [
+            ->map(function (FarmAccessMember $m) {
+                // The farmer's own name, as they registered it.
+                $ownName = trim(($m->farmer->first_name ?? '') . ' ' . ($m->farmer->last_name ?? ''));
+
+                // What THIS farm calls them wins for display. Both are sent:
+                // `display_name` alone is what the edit form prefills, so an
+                // owner who clears the field gets an empty box rather than the
+                // farmer's real name silently becoming "their" label.
+                $label = trim((string) $m->display_name);
+
+                return [
                 'id'         => $m->id,
                 'farmer_id'  => $m->farmer_id,
-                'name'       => trim(($m->farmer->first_name ?? '') . ' ' . ($m->farmer->last_name ?? '')),
+                'name'         => $label !== '' ? $label : $ownName,
+                'display_name' => $label !== '' ? $label : null,
+                'own_name'     => $ownName !== '' ? $ownName : null,
                 'mobile'     => $m->farmer->mobile ?? null,
                 'role'       => $m->role,
                 'granted_by' => $m->grantedBy
@@ -260,7 +311,8 @@ class FarmAccessController extends Controller
                     'create'      => (bool) $m->create_access,
                     'delete'      => (bool) $m->delete_access,
                 ],
-            ]);
+                ];
+            });
 
         return response()->json([
             'status' => true,

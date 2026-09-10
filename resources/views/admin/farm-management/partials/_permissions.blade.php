@@ -26,14 +26,18 @@
     //           HARVESTS it, closing that tank's crop cycle: a partner's call
     //           to make, so they get it with the role, while a manager is
     //           handed it deliberately and starts without it.
-    //   Total Feed — off: the store figure drives the low-feed alerts and every
-    //           remaining-stock number, so it is handed over deliberately too.
-    //   Create, Delete — off, for the same reason.
+    //   Total Feed — on, for BOTH roles: keeping the store topped up is part of
+    //           running a farm day to day, and withholding it left a manager
+    //           looking at a padlocked Edit on the farm header with no way to
+    //           correct a figure they are the one who knows. Still a checkbox,
+    //           so it can be taken away deliberately.
+    //   Create, Delete — off: these remove tanks and farms, so they are handed
+    //           over deliberately rather than coming with the role.
     $newMemberDefaults = [
         'view_access'        => 1,
         'edit_access'        => 1,
         'tank_status_access' => $isPartner ? 1 : 0,
-        'total_feed_access'  => 0,
+        'total_feed_access'  => 1,
         'create_access'      => 0,
         'delete_access'      => 0,
     ];
