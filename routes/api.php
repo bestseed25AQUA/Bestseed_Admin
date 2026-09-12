@@ -169,13 +169,22 @@ Route::prefix('farmer')->group(function () {
         Route::post('/farm/{id}/update-total-feed', [FarmController::class, 'updateTotalFeed'])->middleware('farm.access:total_feed');
 
         //add todays tank feed
-        Route::post('/tanks/add-todays-tanks-quantity', [FarmController::class, 'addTodaysQuantity'])->middleware('farm.access:create');
+        // create OR edit. Recording a meal and correcting one are the same box
+        // on the same card, so a manager given edit can do both. Keeping this
+        // on create alone meant they could type into a day with nothing on it
+        // and be refused on save.
+        Route::post('/tanks/add-todays-tanks-quantity', [FarmController::class, 'addTodaysQuantity'])->middleware('farm.access:create|edit');
 
         //update today tank feed
         Route::post('/tanks/update-tanks-quantity', [FarmController::class, 'updateTankQuantity'])->middleware('farm.access:edit');
 
         //change/update tank status on click on on/off button
         Route::post('/tank/status', [FarmController::class, 'changeTankStatus'])->middleware('farm.access:tank_status');
+
+        // A day's note. `create`, matching recording feed: the note is written
+        // by whoever is at the tank that day, alongside what it was fed. The
+        // middleware finds the farm from tank_id in the body.
+        Route::post('/tank/day-note', [FarmController::class, 'saveTankDayNote'])->middleware('farm.access:create|edit');
 
         //farm tank list-GET /api/farms/{farm_id}/tanks
         Route::get('/farms/{farm_id}/tanks', [FarmController::class, 'farmTanks'])->middleware('farm.access:view');

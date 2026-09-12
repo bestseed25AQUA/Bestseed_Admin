@@ -10,7 +10,7 @@
         'View'        => $row->view_access ?? 0,
         'Edit'        => $row->edit_access ?? 0,
         'Tank On/Off' => $row->tank_status_access ?? null,
-        'Total Feed'  => $row->total_feed_access ?? null,
+        'Store Stock' => $row->total_feed_access ?? null,
         'Create'      => $row->create_access ?? 0,
         'Delete'      => $row->delete_access ?? 0,
     ], fn ($v) => $v !== null);

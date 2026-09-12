@@ -11,6 +11,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use App\Services\FarmStoreService;
 use App\Services\FeedBackfillService;
 use App\Services\FarmTankEditService;
+use App\Models\TankDayNote;
 use App\Services\TankFeedReportService;
 use App\Models\Tank;
 use App\Models\TankBatch;
@@ -954,6 +955,31 @@ class FarmController extends Controller
                 'new_tanks_meta'
             );
 
+            // Adding a tank is CREATE, even though the rest of this form is
+            // edit.
+            //
+            // The app has no other way to add one — /farm/create-tank exists
+            // but nothing calls it — so tanks arrive here, inside the edit
+            // form. Without this check, `create` gated nothing the app could
+            // reach and anyone with edit could add tanks, which is the opposite
+            // of what the two checkboxes say.
+            //
+            // Refused rather than quietly dropped: silently saving the rest and
+            // discarding the tanks would look like a successful save that did
+            // not work.
+            if ($newTanks !== []) {
+                $permission = $request->attributes->get('farm_permission');
+
+                if ($permission && !$permission->allows('create')) {
+                    DB::rollBack();
+
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'Your access to this farm does not allow you to add tanks.',
+                    ], 403);
+                }
+            }
+
             $addedTanks = $this->appendTanks($farm, $newTanks);
 
             // Corrections to the tanks the farm already has.
@@ -1736,6 +1762,15 @@ public function addTodaysQuantity(Request $request){
                 // until a harvest figure is recorded — see TankBatch::fcr().
                 $Tank->harvest_quantity = $batch?->harvest_quantity;
                 $Tank->fcr = $batch?->fcr();
+
+                // TODAY's note, for the Add-feed screen: it records one day
+                // per tank, so that is the only day it can write a note for.
+                // Sent here rather than fetched per card — the screen already
+                // asks for this list, and a request per tank to answer "is
+                // there a note?" would be a dozen calls on a busy farm.
+                $Tank->today_note = TankDayNote::where('tank_id', $Tank->id)
+                    ->whereDate('note_date', now()->toDateString())
+                    ->value('note');
 
                 $total_feeds_added_till_date = TankFeedHistory::where('tank_id', $Tank->id)
                                 ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
@@ -2593,6 +2628,13 @@ public function addTodaysQuantity(Request $request){
 
         // Which cycle this is, and whether it is still running. A finished
         // batch is shown read-only, with its report still downloadable.
+        // What was written about each day, keyed by Y-m-d.
+        //
+        // Sent with the history rather than fetched separately: the screen draws
+        // a card per day and needs to know, for every one of them, whether to
+        // show the note marker — a second round trip per screen to answer that.
+        $notes = \App\Models\TankDayNote::forTank((int) $tankId, $batch?->id);
+
         $batchMeta = [
             'batch_id'  => $batch?->id,
             'batch_no'  => $batch?->batch_no,
@@ -2609,6 +2651,7 @@ public function addTodaysQuantity(Request $request){
                 'message'       => 'No record found',
                 'stocking_date' => $stockingDate,
                 'batch'         => $batchMeta,
+                'notes'         => (object) $notes,
                 'data'          => []
             ], 404);
         }
@@ -2619,6 +2662,7 @@ public function addTodaysQuantity(Request $request){
             'message'       => 'Tank feed history fetched successfully',
             'stocking_date' => $stockingDate,
             'batch'         => $batchMeta,
+            'notes'         => (object) $notes,
             'data'          => $history
         ], 200);
 
@@ -2633,6 +2677,85 @@ public function addTodaysQuantity(Request $request){
     }
 }
     /** get tank feed history end */
+
+    /**
+     * POST /api/farmer/tank/day-note
+     *
+     * Write, change or clear the note on one tank-day.
+     *
+     * An empty note DELETES the row rather than storing "". A blank note and no
+     * note are the same thing to a reader, and keeping the empty row would leave
+     * the marker showing on a day with nothing written on it.
+     */
+    public function saveTankDayNote(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'tank_id' => 'required|integer|exists:tanks,id',
+            'date'    => 'required|date',
+            // Nullable, because clearing a note is a legitimate save.
+            'note'    => 'nullable|string|max:2000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Validation error',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $tank = Tank::findOrFail($request->input('tank_id'));
+            $date = Carbon::parse($request->input('date'))->toDateString();
+            $note = trim((string) $request->input('note'));
+
+            if ($note === '') {
+                TankDayNote::where('tank_id', $tank->id)
+                    ->whereDate('note_date', $date)
+                    ->delete();
+
+                return response()->json([
+                    'status'  => true,
+                    'message' => 'Note removed',
+                    'data'    => ['date' => $date, 'note' => null],
+                ], 200);
+            }
+
+            // Attributed to the crop that was running on that DAY, not simply
+            // the current one: a note written while reviewing a finished batch
+            // belongs with that batch.
+            $batch = TankBatch::where('tank_id', $tank->id)
+                ->whereDate('stocking_date', '<=', $date)
+                ->where(function ($q) use ($date) {
+                    $q->whereNull('ended_at')->orWhereDate('ended_at', '>=', $date);
+                })
+                ->orderByDesc('id')
+                ->first()
+                ?? TankBatch::currentFor((int) $tank->id);
+
+            $row = TankDayNote::updateOrCreate(
+                ['tank_id' => $tank->id, 'note_date' => $date],
+                [
+                    'farm_id'    => $tank->farm_id,
+                    'batch_id'   => $batch?->id,
+                    'note'       => $note,
+                    'created_by' => $request->user()->id,
+                ]
+            );
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Note saved',
+                'data'    => ['date' => $date, 'note' => $row->note],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Something went wrong',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
 
     /** get total feed used and store of a particular farm beg */
    public function getTotalFeedandStore(Request $request, $id)

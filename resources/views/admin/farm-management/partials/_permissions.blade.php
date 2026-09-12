@@ -14,7 +14,7 @@
         'view_access'        => ['View', 'See the farm, its tanks and feed history'],
         'edit_access'        => ['Edit', 'Change farm details, tanks and feed entries'],
         'tank_status_access' => ['Tank Active / Inactive', 'Mark a tank active or inactive (harvest it)'],
-        'total_feed_access'  => ['Total Feed', 'Change the feed store and the low-feed alert limit'],
+        'total_feed_access'  => ['Store Stock', 'Change the feed store and the low-feed alert limit'],
         'create_access'      => ['Create', 'Add tanks and record daily feed'],
         'delete_access'      => ['Delete', 'Remove the farm and its tanks'],
     ];
@@ -26,7 +26,7 @@
     //           HARVESTS it, closing that tank's crop cycle: a partner's call
     //           to make, so they get it with the role, while a manager is
     //           handed it deliberately and starts without it.
-    //   Total Feed — on, for BOTH roles: keeping the store topped up is part of
+    //   Store Stock — on, for BOTH roles: keeping the store topped up is part of
     //           running a farm day to day, and withholding it left a manager
     //           looking at a padlocked Edit on the farm header with no way to
     //           correct a figure they are the one who knows. Still a checkbox,

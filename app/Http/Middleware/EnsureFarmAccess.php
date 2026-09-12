@@ -11,7 +11,9 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Gate a farm route behind one ability: farm.access:view|edit|create|delete.
+ * Gate a farm route behind an ability: farm.access:view, farm.access:edit, and
+ * so on. Several may be given, separated by `|` — `farm.access:create|edit`
+ * passes when the caller holds EITHER.
  *
  * The controllers below this middleware were written before access control
  * existed and each locates its farm differently — a route parameter, a body
@@ -71,12 +73,33 @@ class EnsureFarmAccess
 
         $permission = $this->access->permissionFor($farmer->id, $farm);
 
-        if (!$permission->allows($ability)) {
+        // `create|edit` passes when the caller holds EITHER.
+        //
+        // Some actions are reachable through more than one ability: recording a
+        // meal is a create, but correcting one is an edit, and the same screen
+        // does both — so a manager given edit could open the boxes, type, and
+        // be refused on save for a distinction they never saw. Where the split
+        // is real (delete, tank_status) the routes still name one ability.
+        $allowed = array_filter(explode('|', $ability));
+
+        $granted = false;
+        foreach ($allowed as $one) {
+            if ($permission->allows($one)) {
+                $granted = true;
+                break;
+            }
+        }
+
+        if (!$granted) {
+            // Read as a list, so a refusal names every ability that would have
+            // worked rather than only the first.
+            $needed = implode(' or ', $allowed);
+
             return response()->json([
                 'status'  => false,
                 'message' => $permission->isDenied()
                     ? 'You do not have access to this farm.'
-                    : "Your access to this farm does not allow you to {$ability}.",
+                    : "Your access to this farm does not allow you to {$needed}.",
             ], 403);
         }
 

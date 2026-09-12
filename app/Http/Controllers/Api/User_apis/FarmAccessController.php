@@ -271,7 +271,17 @@ class FarmAccessController extends Controller
     /**
      * GET /api/farmer/farm/{farm}/members
      *
-     * Everyone who currently holds access, however they got it.
+     * Everyone who CURRENTLY holds access, however they got it.
+     *
+     * Live grants only — the same `live()` the farm list itself is built on, so
+     * "holds access to this farm" means one thing everywhere. Revoked and
+     * expired rows were coming back too, and the Setup Access screen listed
+     * them with a "Removed" badge: the farm had already vanished from that
+     * person's app, yet they still sat on the owner's list looking like members.
+     *
+     * The row stays in the table. It is history, and re-granting is an upsert on
+     * (farm, farmer) that clears revoked_at — so adding the same number again
+     * restores them rather than creating a duplicate.
      */
     public function members(Request $request, $farmId)
     {
@@ -279,6 +289,7 @@ class FarmAccessController extends Controller
 
         $members = FarmAccessMember::with(['farmer', 'grantedBy'])
             ->where('farm_id', $farm->id)
+            ->live()
             ->orderByDesc('id')
             ->get()
             ->map(function (FarmAccessMember $m) {
