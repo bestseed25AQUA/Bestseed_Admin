@@ -1728,8 +1728,25 @@ public function addTodaysQuantity(Request $request){
           // tank's own value is only a per-tank override when present.
           $farmStockingDate = Farm::withTrashed()->where('id', $farm_id)->value('stocking_date');
 
+          // The DAY this list is about. Today unless `?date=` asks for another.
+          //
+          // The Add-feed screen can be pointed at a past day to fill in a
+          // missed one, and it reads the tanks from here — so "today's feed"
+          // below means "the selected day's feed". Never the future: a day that
+          // has not happened cannot have been fed, and offering it would only
+          // invite records dated ahead of the crop.
+          $requestedDate = $request->filled('date')
+              ? Carbon::parse($request->input('date'))->startOfDay()
+              : Carbon::now()->startOfDay();
+
+          if ($requestedDate->greaterThan(Carbon::now()->startOfDay())) {
+              $requestedDate = Carbon::now()->startOfDay();
+          }
+
+          $forDate = $requestedDate->toDateString();
+
           // Add latest feed data
-            $Tanks = $Tanks->map(function ($Tank) use ($farmStockingDate) {
+            $Tanks = $Tanks->map(function ($Tank) use ($farmStockingDate, $forDate) {
 
             // $i=1;
 
@@ -1769,7 +1786,7 @@ public function addTodaysQuantity(Request $request){
                 // asks for this list, and a request per tank to answer "is
                 // there a note?" would be a dozen calls on a busy farm.
                 $Tank->today_note = TankDayNote::where('tank_id', $Tank->id)
-                    ->whereDate('note_date', now()->toDateString())
+                    ->whereDate('note_date', $forDate)
                     ->value('note');
 
                 $total_feeds_added_till_date = TankFeedHistory::where('tank_id', $Tank->id)
@@ -1842,7 +1859,7 @@ public function addTodaysQuantity(Request $request){
                 // Feed is given several times a day, so a day is a LIST.
                 $todaysFeed = TankFeedHistory::where('tank_id', $Tank->id)
                                 ->when($batchId, fn ($q) => $q->where('batch_id', $batchId))
-                                ->whereDate('feed_date', now()->toDateString())
+                                ->whereDate('feed_date', $forDate)
                                 ->orderBy('id')
                                 ->get(['id', 'meals', 'feed_quantity', 'feed_date']);
 
@@ -1880,6 +1897,10 @@ public function addTodaysQuantity(Request $request){
            return response()->json([
                'status' => true,
                'message' => 'Farm Tank fetched successfully',
+               // The day the figures above describe. Echoed back because a
+               // future date is clamped to today, so the screen shows the
+               // day it actually got rather than the one it asked for.
+               'for_date' => $forDate,
                'data' => $Tanks,
                //'farm_images' => $farm_images,
            ], 200);
