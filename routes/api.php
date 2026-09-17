@@ -192,7 +192,11 @@ Route::prefix('farmer')->group(function () {
         Route::post('tank-feed-history', [FarmController::class, 'getTankFeedHistory'])->middleware('farm.access:view');
         // Edit one recorded feed entry from the tank history screen.
         Route::post('/tank-feed-entry', [FarmController::class, 'updateTankFeedEntry'])->middleware('farm.access:edit');
-        Route::post('/tank-feed-entry/delete', [FarmController::class, 'deleteTankFeedEntry'])->middleware('farm.access:delete');
+        // delete OR edit. Removing a meal is part of correcting a day's record —
+        // a meal typed against the wrong tank can only be undone by removing it,
+        // so someone trusted to fix the figures needs it. `delete` on its own
+        // still guards the destructive things: the farm and its tanks.
+        Route::post('/tank-feed-entry/delete', [FarmController::class, 'deleteTankFeedEntry'])->middleware('farm.access:delete|edit');
 
         //download tank feed report
         Route::post('/download-tank-feed-report', [FarmController::class, 'downloadFeedReport'])->middleware('farm.access:view');
