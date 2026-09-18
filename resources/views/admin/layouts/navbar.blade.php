@@ -146,6 +146,48 @@
         </li>
         @endpermission
 
+        {{-- Farm Management subscriptions. Its own top-level item rather than a
+             child of Farm Management: the person who takes renewal calls is not
+             necessarily the person who edits farms, and the two are separate
+             permissions. The badge counts subscriptions that have lapsed or are
+             about to, so a missed renewal is visible without opening the page. --}}
+        @permission('subscriptions.view')
+        @php
+            $subsActive = str_starts_with($currentRoute ?? '', 'subscriptions.');
+            // Guarded: the sidebar renders on every admin page, and a missing
+            // table before migrations run must not take the whole panel down.
+            try {
+                $subsAlertCount = \App\Models\FarmSubscription::expired()->count()
+                    + \App\Models\FarmSubscription::expiringSoon()->count();
+            } catch (\Throwable $e) {
+                $subsAlertCount = 0;
+            }
+        @endphp
+        <li class="nav-item {{ $subsActive ? 'active' : '' }}">
+            <a class="nav-link" data-toggle="collapse" href="#subscriptions"
+                aria-expanded="{{ $subsActive ? 'true' : 'false' }}" aria-controls="subscriptions">
+                <i class="fas fa-id-card menu-icon"></i>
+                <span class="menu-title">Subscriptions</span>
+                @if ($subsAlertCount > 0)
+                    <span class="badge badge-danger ml-2">{{ $subsAlertCount }}</span>
+                @endif
+                <i class="menu-arrow"></i>
+            </a>
+            <div id="subscriptions" class="collapse {{ $subsActive ? 'show' : '' }}">
+                <ul class="nav flex-column sub-menu">
+                    <li class="nav-item {{ $currentRoute === 'subscriptions.index' ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('subscriptions.index') }}">Subscribed Users</a>
+                    </li>
+                    @permission('subscriptions.create')
+                        <li class="nav-item {{ $currentRoute === 'subscriptions.create' ? 'active' : '' }}">
+                            <a class="nav-link" href="{{ route('subscriptions.create') }}">Add Subscription</a>
+                        </li>
+                    @endpermission
+                </ul>
+            </div>
+        </li>
+        @endpermission
+
         @permission('banners.view')
         <li class="nav-item {{ isActiveRoute('banners', $currentRoute, $isEditOrCreate) ? 'active' : '' }}">
             <a class="nav-link" href="{{ route('banners.index') }}">

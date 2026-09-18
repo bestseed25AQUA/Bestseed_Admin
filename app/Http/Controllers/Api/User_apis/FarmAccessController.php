@@ -28,9 +28,9 @@ class FarmAccessController extends Controller
     /**
      * The caller's own standing on a farm, or abort if they have none.
      *
-     * Anyone with access may pass it on — an owner to a manager, that manager
-     * to someone else, and so on. What they may NOT do is hand out more than
-     * they hold, so the grant is capped against this.
+     * Only checks that they hold SOMETHING. Whether they may give it away is a
+     * separate question — see [requireSharer] — because reading the member
+     * list is open to anyone on the farm while adding to it is not.
      */
     private function callerPermission(Request $request, $farmId): array
     {
@@ -50,6 +50,31 @@ class FarmAccessController extends Controller
             throw new HttpResponseException(response()->json([
                 'status'  => false,
                 'message' => 'You do not have access to this farm.',
+            ], 403));
+        }
+
+        return [$farm, $permission];
+    }
+
+    /**
+     * The caller's standing, having established they may give access away.
+     *
+     * Owners and partners. A partner co-owns the farm and may bring people in;
+     * a manager is staff. Previously anyone holding any permission could pass
+     * it on, so a manager given nothing but view access could appoint managers
+     * and partners of their own and quietly widen who reaches the farm.
+     *
+     * Enforced here and not only in the app: the app decides what to offer,
+     * this decides what happens.
+     */
+    private function requireSharer(Request $request, $farmId): array
+    {
+        [$farm, $permission] = $this->callerPermission($request, $farmId);
+
+        if (!$permission->canShareAccess()) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'Only the farm owner or a partner can give access to this farm.',
             ], 403));
         }
 
@@ -123,7 +148,7 @@ class FarmAccessController extends Controller
      */
     public function addMembers(Request $request, $farmId)
     {
-        [$farm, $mine] = $this->callerPermission($request, $farmId);
+        [$farm, $mine] = $this->requireSharer($request, $farmId);
 
         $validator = validator($request->all(), [
             // Either existing people, or numbers nobody has registered yet.
@@ -349,7 +374,11 @@ class FarmAccessController extends Controller
             ], 404);
         }
 
-        [$farm, $mine] = $this->callerPermission($request, $member->farm_id);
+        // Taking access away is the same authority as giving it, so a manager
+        // is refused here too — including from any rows a manager admitted
+        // before this rule existed. Otherwise they could still remove the
+        // owner's own appointees by having once granted them.
+        [$farm, $mine] = $this->requireSharer($request, $member->farm_id);
 
         $isOwner = $mine->isOwner();
         $admittedThem = (int) $member->granted_by === (int) $request->user()->id;

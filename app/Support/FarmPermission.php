@@ -71,6 +71,41 @@ final class FarmPermission
         return $this->role === self::ROLE_NONE;
     }
 
+    public function isPartner(): bool
+    {
+        return $this->role === self::ROLE_PARTNER;
+    }
+
+    public function isManager(): bool
+    {
+        return $this->role === self::ROLE_MANAGER;
+    }
+
+    /**
+     * Whether this person may hand the farm to somebody else.
+     *
+     * Owners and partners only. A partner is a co-owner and may bring people
+     * in; a manager is staff, and staff do not widen access. This used to be
+     * "anyone holding any permission", which let a manager given view access
+     * appoint managers and partners of their own.
+     *
+     * Holding something to give is still required — a grant of nothing is
+     * refused either way, and this keeps the reason honest.
+     */
+    public function canShareAccess(): bool
+    {
+        if (!$this->isOwner() && !$this->isPartner()) {
+            return false;
+        }
+
+        return $this->view
+            || $this->edit
+            || $this->tankStatus
+            || $this->totalFeed
+            || $this->create
+            || $this->delete;
+    }
+
     /**
      * Check one ability. An unknown ability name is denied rather than
      * silently allowed, so a typo in a route definition cannot open a hole.
@@ -94,6 +129,9 @@ final class FarmPermission
         return [
             'role'        => $this->role,
             'is_owner'    => $this->isOwner(),
+            // Sent rather than left for the app to re-derive, so the option it
+            // offers and the rule the server enforces cannot drift apart.
+            'can_share_access' => $this->canShareAccess(),
             'permissions' => [
                 'view'        => $this->view,
                 'edit'        => $this->edit,

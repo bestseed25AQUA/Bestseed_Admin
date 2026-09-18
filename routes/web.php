@@ -170,6 +170,18 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::resource('admin/banners', BannerController::class);
     Route::resource('admin/contacts', ContactController::class);
 
+    // Farm Management subscriptions — recorded by phone, never paid in-app.
+    //
+    // `lookup` sits ABOVE the resource routes: registered after them,
+    // `admin/subscriptions/lookup` would be captured by `{subscription}` and
+    // Laravel would try to bind "lookup" as a model id.
+    Route::get('admin/subscriptions/lookup', [\App\Http\Controllers\Admin\SubscriptionController::class, 'lookupFarmer'])
+        ->name('subscriptions.lookup');
+    Route::post('admin/subscriptions/{subscription}/cancel', [\App\Http\Controllers\Admin\SubscriptionController::class, 'cancel'])
+        ->name('subscriptions.cancel');
+    Route::resource('admin/subscriptions', \App\Http\Controllers\Admin\SubscriptionController::class)
+        ->parameters(['subscriptions' => 'subscription']);
+
     // Farm Management — farms and their teams.
     Route::get('admin/farm-management/farms', [FarmManagementController::class, 'index'])->name('farm-management.farms.index');
     Route::get('admin/farm-management/farms/create', [FarmManagementController::class, 'create'])->name('farm-management.farms.create');

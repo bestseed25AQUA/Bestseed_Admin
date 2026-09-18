@@ -296,6 +296,13 @@ Route::prefix('farmer')->group(function () {
         // Contacts API
         Route::get('/contacts', [ContactController::class, 'index']);
 
+        // Farm Management subscription standing.
+        //
+        // Asked before the add-farm button opens the form, and again when the
+        // Farm Management screen loads so an expiry warning can be shown in
+        // place for a farmer who never enabled push notifications.
+        Route::get('/subscription/status', [\App\Http\Controllers\Api\User_apis\SubscriptionController::class, 'status']);
+
         // FCM Token Registration
         Route::post('/register-fcm-token', [UserAuthController::class, 'registerFcmToken']);
 

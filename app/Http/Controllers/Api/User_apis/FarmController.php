@@ -572,8 +572,31 @@ class FarmController extends Controller
      public function createFarm(Request $request)
     {
         try {
+            // The allowance check, before ANY work.
+            //
+            // The app asks the same question before it opens the form, so a
+            // farmer normally never reaches this. It is here because that
+            // check cannot be trusted: an older build, a stale cached answer,
+            // or a direct call all arrive at this line, and the free limit has
+            // to mean something on the server or it means nothing.
+            //
+            // 402 Payment Required, not 403: the app keys the subscription
+            // sheet off this exact status, and a plain 403 is already used for
+            // "this farm is not yours" in the farm.access middleware.
+            $subscriptions = app(\App\Services\SubscriptionService::class);
+            $farmerId = (int) $request->user()->id;
+
+            if (!$subscriptions->canCreateFarm($farmerId)) {
+                return response()->json([
+                    'status'             => false,
+                    'needs_subscription' => true,
+                    'message'            => $subscriptions->refusalMessage($farmerId),
+                    'data'               => $subscriptions->statusFor($farmerId),
+                ], 402);
+            }
+
            // dd('create farm with method type call or fill form');
-            
+
            // Check which method (call or form)
             $type = $request->input('type', 'form'); // default = form
             //dd($type); //call
