@@ -10,7 +10,9 @@ use App\Models\Farm;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Services\FarmStoreService;
 use App\Services\FeedBackfillService;
+use App\Services\FarmActivityLogger;
 use App\Services\FarmTankEditService;
+use App\Services\TankBatchService;
 use App\Models\TankDayNote;
 use App\Services\TankFeedReportService;
 use App\Models\Tank;
@@ -812,7 +814,17 @@ class FarmController extends Controller
                     }
                 }
 
-               // dd($farm); 
+                // The farm and each of its tanks, so the history opens with
+                // how the farm came to exist rather than with the first edit
+                // somebody made to it.
+                $logger = app(FarmActivityLogger::class);
+                $logger->farmCreated($farm);
+
+                foreach (Tank::where('farm_id', $farm->id)->orderBy('id')->get() as $newTank) {
+                    $logger->tankAdded($farm, $newTank);
+                }
+
+               // dd($farm);
 
                 return response()->json([
                     'status' => true,
@@ -1153,6 +1165,25 @@ class FarmController extends Controller
 
             DB::commit();
 
+            // After the commit: an entry describing a rolled-back edit would
+            // be worse than no entry at all.
+            //
+            // Only what actually moved. `getChanges()` is Eloquent's record of
+            // what the save really wrote, so a farmer who reopened the form and
+            // pressed Save without touching anything writes no history.
+            $moved = collect($farm->getChanges())
+                ->except(['updated_at'])
+                ->mapWithKeys(fn ($value, $key) => [
+                    ucfirst(str_replace('_', ' ', $key)) => (string) $value,
+                ])
+                ->all();
+
+            if ($addedTanks > 0) {
+                $moved['Tanks added'] = $addedTanks;
+            }
+
+            app(FarmActivityLogger::class)->farmUpdated($farm, $moved);
+
             return response()->json([
                 'status' => true,
                 'message' => $addedTanks > 0
@@ -1189,6 +1220,9 @@ class FarmController extends Controller
                 'message' => 'Farm not found',
             ], 404);
         }
+
+        // Logged BEFORE the delete, while the farm still has a name to record.
+        app(FarmActivityLogger::class)->farmDeleted($farm);
 
         $farm->delete(); // soft delete
 
@@ -1380,6 +1414,19 @@ public function addTodaysQuantity(Request $request){
 
             $currentBatchId = $currentBatch->id;
 
+            // The farmer is telling us what really happened on this day, so
+            // the ESTIMATE for it has to go before the real figure lands.
+            //
+            // "Feed already used" is spread evenly over every past day as a
+            // stand-in for days nobody recorded. Leaving that stand-in beside
+            // a real entry counts the day twice: a day estimated at 1.77 kg
+            // and then recorded as 6 kg reported 7.77 kg fed, and Total Feed
+            // Used climbed past anything that had ever gone into the pond.
+            //
+            // Only generated rows go. A second meal recorded on the same day
+            // finds nothing left to clear and changes nothing.
+            app(FeedBackfillService::class)->supersedeDay((int) $tank_id, $feed_date);
+
             $feed->meals = $request->meals;
             $feed->feed_quantity = $request->feed_quantity;
             //$feed->feed_date = date('Y-m-d h:i:s');
@@ -1428,7 +1475,27 @@ public function addTodaysQuantity(Request $request){
                         ->sum('feed_quantity'),
                 ]);
 
-            
+                // Who fed what, and when. Recorded after the write so an entry
+                // can never describe something that did not happen.
+                $loggedTank = Tank::find($tank_id);
+
+                if ($loggedTank) {
+                    $logger = app(FarmActivityLogger::class);
+
+                    if ($feed_id > 0) {
+                        $logger->feedUpdated($loggedTank, $feed_date, [
+                            'Quantity' => [$previousQuantity . ' kg', $request->feed_quantity . ' kg'],
+                        ]);
+                    } else {
+                        $logger->feedRecorded(
+                            $loggedTank,
+                            $feed_date,
+                            (float) $request->meals,
+                            (float) $request->feed_quantity
+                        );
+                    }
+                }
+
                 return response()->json([
                 'status' => true,
                 'message' => $msg,
@@ -1565,68 +1632,31 @@ public function addTodaysQuantity(Request $request){
         // used to flip `tanks.status` and nothing else, so the second crop
         // piled onto the first: the running total kept climbing from where the
         // last one finished and the day count never restarted.
-        DB::transaction(function () use ($request, $tank, $activating) {
-            $open = TankBatch::openFor((int) $tank->id);
-
-            if ($activating) {
-                // Already running: nothing to start.
-                if (!$open) {
-                    $stockingDate = $request->filled('stocking_date')
-                        ? Carbon::parse($request->input('stocking_date'))->toDateString()
-                        : Carbon::now()->toDateString();
-
-                    $usedBefore = (float) $request->input('feed_used_before', 0);
-
-                    $lastNo = (int) TankBatch::where('tank_id', $tank->id)->max('batch_no');
-
-                    $batch = TankBatch::create([
-                        'tank_id'          => $tank->id,
-                        'farm_id'          => $tank->farm_id,
-                        'batch_no'         => $lastNo + 1,
-                        'stocking_date'    => $stockingDate,
-                        'feed_used_before' => $usedBefore > 0 ? $usedBefore : null,
-                        'started_at'       => now(),
-                        'ended_at'         => null,
-                    ]);
-
-                    // The tank's own date follows its current crop, so the day
-                    // count and the meal schedule start again.
-                    $tank->stocking_date = $stockingDate;
-
-                    // Stocked before today: build the history for the days
-                    // that have already passed, exactly as a new tank does.
-                    if ($usedBefore > 0) {
-                        $farm = Farm::find($tank->farm_id);
-                        if ($farm) {
-                            app(FeedBackfillService::class)->applyForTank(
-                                $farm,
-                                (int) $tank->id,
-                                $stockingDate,
-                                $usedBefore,
-                                (int) $batch->id
-                            );
-                        }
-                    }
-                }
-            } elseif ($open) {
-                // Harvested. The batch closes and keeps its rows; the tank's
-                // totals fall to zero because nothing is running in it.
-                $open->ended_at = now();
-
-                // What it weighed, when the farmer gave a figure. Left alone
-                // otherwise: null means "not weighed", which is not the same
-                // as harvesting nothing, and a blank field must not wipe a
-                // figure recorded on an earlier attempt.
-                if ($request->filled('harvest_quantity')) {
-                    $open->harvest_quantity = (float) $request->input('harvest_quantity');
-                }
-
-                $open->save();
-            }
-
-            $tank->status = $request->status;
-            $tank->save();
-        });
+        // One call, so this and the admin panel cannot drift apart.
+        //
+        // All of this used to be spelled out here: open the batch, move the
+        // tank's own stocking date onto the new crop, generate the history for
+        // days already passed, close the old batch on harvest. The admin panel
+        // called [TankBatchService] instead, which did only the first of those
+        // — so a tank ACTIVATED FROM ADMIN kept the previous crop's date and
+        // got no back-history at all, while the identical action in the app
+        // got both. The service now does the whole job and both callers go
+        // through it.
+        app(TankBatchService::class)->setStatus(
+            $tank,
+            (int) $request->status,
+            // Defaulted here rather than in the service: an app that sends no
+            // date means "stocked today", whereas the service leaving it null
+            // would fall back to the tank's OLD date and age the new crop by
+            // however long the previous one ran.
+            $request->filled('stocking_date')
+                ? Carbon::parse($request->input('stocking_date'))->toDateString()
+                : Carbon::now()->toDateString(),
+            (float) $request->input('feed_used_before', 0),
+            $request->filled('harvest_quantity')
+                ? (float) $request->input('harvest_quantity')
+                : null,
+        );
 
         $message = $activating
             ? 'Tank activated. A new batch has started.'
@@ -1863,11 +1893,21 @@ public function addTodaysQuantity(Request $request){
                     ? FeedBackfillService::mealsForDay((int) $Tank->day)
                     : 0;
 
-                // The "already used" figure this tank was set up with, read
-                // back from the rows it generated. The edit form shows it so
-                // the farmer can correct it.
-                $Tank->feed_used_before = app(FeedBackfillService::class)
-                    ->backfilledTotalFor((int) $Tank->id);
+                // The "already used" figure this tank was set up with.
+                //
+                // Read from the BATCH, which stores what the farmer actually
+                // typed, rather than by summing the rows it generated. Those
+                // rows now shrink as real feed replaces the estimate day by
+                // day, so summing them showed a farmer who entered 20 kg a
+                // figure that crept downwards every time they filled in a past
+                // day — and the edit form would then save that smaller number
+                // back as though they had meant it.
+                //
+                // Falls back to the rows for tanks set up before the batch
+                // carried the figure.
+                $Tank->feed_used_before = $batch?->feed_used_before !== null
+                    ? (float) $batch->feed_used_before
+                    : app(FeedBackfillService::class)->backfilledTotalFor((int) $Tank->id);
 
                 // Kept separate: the number of days feed was actually recorded.
                 $Tank->fed_days = $total_feeds_added_till_date;
@@ -1976,9 +2016,22 @@ public function addTodaysQuantity(Request $request){
             ], 422);
         }
 
+        // Tank AND farm, in that order.
+        //
+        // The name was the tank alone, so a farmer working several farms ended
+        // up with tank-1, tank-2, tank-1 again in one downloads folder and no
+        // way to tell which farm any of them belonged to. Tank first because
+        // that is what they went looking for; the farm disambiguates it.
+        //
+        // The timestamp stays: these files are written to public/reports and
+        // served from there, so two reports for the same tank on the same day
+        // would otherwise overwrite each other — including one the farmer had
+        // already been handed a link to.
         $fileName = sprintf(
-            'feed_report_%s_%s.pdf',
+            '%s_%s_feed_report_%s.pdf',
             Str::slug($tank->tank_name ?: 'tank'),
+            // withTrashed above, so a deleted farm still names its reports.
+            Str::slug(optional($data['farm'])->farm_name ?: 'farm'),
             now()->format('Y_m_d_His')
         );
 
@@ -2899,6 +2952,17 @@ public function addTodaysQuantity(Request $request){
         }
 
         $farm->save();
+
+        // What the farmer TYPED, not the column behind it. `store` holds the
+        // total ever stocked; the sheet asks for what is in the shed now, and
+        // an entry quoting the column would read as a number nobody entered.
+        $logged = ['Store in shed' => $request->store . ' kg'];
+
+        if ($request->filled('low_feed_limit')) {
+            $logged['Low feed limit'] = $request->input('low_feed_limit') . ' kg';
+        }
+
+        app(FarmActivityLogger::class)->storeUpdated($farm, $logged);
 
         // -------------------------------
         // 4. Response success

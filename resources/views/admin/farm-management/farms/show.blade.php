@@ -59,6 +59,7 @@
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-tanks">Tanks ({{ $tanks->count() }})</a></li>
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-team">Managers &amp; Partners ({{ $team->count() }})</a></li>
                         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-members">Who Has Access ({{ $members->count() }})</a></li>
+                        <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-activity">History ({{ $activity->count() }})</a></li>
                     </ul>
 
                     @permission('farm-management.update')
@@ -205,15 +206,25 @@
                                                             <i class="fas fa-edit"></i>
                                                         </button>
 
-                                                        <form action="{{ route('farm-management.tanks.toggle-status', [$farm->id, $tank->id]) }}"
-                                                            method="POST" class="d-inline">
-                                                            @csrf
-                                                            <button type="submit"
-                                                                class="btn btn-sm btn-{{ $tank->status ? 'warning' : 'success' }} btn-action"
-                                                                title="{{ $tank->status ? 'Deactivate' : 'Activate' }}">
+                                                        {{-- Harvesting needs no answers, so it stays a
+                                                             single click. Starting a crop needs two, so
+                                                             it opens the row below instead of firing
+                                                             straight off. --}}
+                                                        @if ($tank->status)
+                                                            <form action="{{ route('farm-management.tanks.toggle-status', [$farm->id, $tank->id]) }}"
+                                                                method="POST" class="d-inline">
+                                                                @csrf
+                                                                <button type="submit" class="btn btn-sm btn-warning btn-action"
+                                                                    title="Deactivate">
+                                                                    <i class="fas fa-power-off"></i>
+                                                                </button>
+                                                            </form>
+                                                        @else
+                                                            <button class="btn btn-sm btn-success btn-action" title="Activate"
+                                                                data-toggle="collapse" data-target="#startCrop{{ $tank->id }}">
                                                                 <i class="fas fa-power-off"></i>
                                                             </button>
-                                                        </form>
+                                                        @endif
                                                     @endpermission
 
                                                     @permission('farm-management.delete')
@@ -221,7 +232,7 @@
                                                             method="POST" class="d-inline confirm-form">
                                                             @csrf @method('DELETE')
                                                             <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
-                                                                data-confirm="Every feed record for this tank is deleted too. This cannot be undone.">
+                                                                data-confirm="The tank is hidden from the farmer's app and its crop is closed. Its feed records are kept, and you can restore it from the Deleted tanks list below.">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </form>
@@ -269,10 +280,137 @@
                                                         </form>
                                                     </td>
                                                 </tr>
+
+                                                {{-- Starting a crop, with the two answers the app asks
+                                                     for on the same action.
+
+                                                     Activating a tank begins a NEW crop, so it needs a
+                                                     date to count days from — firing straight off made
+                                                     a pond stocked a fortnight ago read as Day 1 — and,
+                                                     when that date is past, whatever it was already
+                                                     fed, so its history is not simply missing. --}}
+                                                @unless ($tank->status)
+                                                    <tr class="collapse" id="startCrop{{ $tank->id }}">
+                                                        <td colspan="7" class="bg-light">
+                                                            <form action="{{ route('farm-management.tanks.toggle-status', [$farm->id, $tank->id]) }}"
+                                                                method="POST">
+                                                                @csrf
+                                                                <div class="row align-items-end">
+                                                                    <div class="col-md-3 form-group mb-2">
+                                                                        <label class="small mb-1">
+                                                                            Stocking date <span class="text-danger">*</span>
+                                                                        </label>
+                                                                        <input type="date" name="stocking_date" required
+                                                                            class="form-control form-control-sm"
+                                                                            {{-- A crop cannot have been stocked
+                                                                                 on a day that has not happened. --}}
+                                                                            max="{{ now()->toDateString() }}"
+                                                                            value="{{ now()->toDateString() }}">
+                                                                    </div>
+                                                                    <div class="col-md-3 form-group mb-2">
+                                                                        <label class="small mb-1">Feed already used (kg)</label>
+                                                                        <input type="number" step="0.01" min="0"
+                                                                            name="feed_used_before"
+                                                                            class="form-control form-control-sm"
+                                                                            placeholder="0">
+                                                                    </div>
+                                                                    <div class="col-md-6 form-group mb-2">
+                                                                        <button type="submit" class="btn btn-sm btn-success">
+                                                                            <i class="fas fa-power-off mr-1"></i> Start Crop
+                                                                        </button>
+                                                                        <span class="small text-muted ml-2">
+                                                                            Only needed when the crop went in before
+                                                                            today. It is spread across the days that
+                                                                            have passed and does not come off the
+                                                                            farm's store.
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                @endunless
                                             @endpermission
                                         @endforeach
                                     </tbody>
                                 </table>
+                            </div>
+                        @endif
+
+                        {{-- Deleted tanks.
+                             Deleting a tank hides it; its feed records stay put.
+                             Collapsed by default so the working list is not
+                             cluttered by ponds nobody uses any more, but present
+                             so removing the wrong one is not the end of it. --}}
+                        @if ($deletedTanks->isNotEmpty())
+                            <button class="btn btn-sm btn-outline-secondary mt-4"
+                                data-toggle="collapse" data-target="#deletedTanks">
+                                <i class="fas fa-trash-restore mr-1"></i>
+                                Deleted tanks ({{ $deletedTanks->count() }})
+                            </button>
+
+                            <div class="collapse mt-3" id="deletedTanks">
+                                <div class="alert alert-light border small mb-2">
+                                    These tanks are hidden from the farmer's app. Their feed
+                                    records are kept, so restoring one brings its history back
+                                    with it. A restored tank comes back <strong>inactive</strong>
+                                    — start a crop when it is stocked again.
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Tank</th>
+                                                <th>Stocking date</th>
+                                                <th>Deleted</th>
+                                                <th class="text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($deletedTanks as $tank)
+                                                <tr class="table-secondary">
+                                                    <td>{{ $tank->id }}</td>
+                                                    <td>{{ $tank->tank_name }}</td>
+                                                    <td>
+                                                        {{ $tank->stocking_date
+                                                            ? \Illuminate\Support\Carbon::parse($tank->stocking_date)->format('d M Y')
+                                                            : '—' }}
+                                                    </td>
+                                                    <td>{{ $tank->deleted_at?->format('d M Y, H:i') ?? '—' }}</td>
+                                                    <td class="text-center text-nowrap">
+                                                        @permission('farm-management.update')
+                                                            <form action="{{ route('farm-management.tanks.restore', [$farm->id, $tank->id]) }}"
+                                                                method="POST" class="d-inline">
+                                                                @csrf
+                                                                <button type="submit" class="btn btn-sm btn-success btn-action"
+                                                                    title="Restore this tank">
+                                                                    <i class="fas fa-undo"></i> Restore
+                                                                </button>
+                                                            </form>
+                                                        @endpermission
+
+                                                        @permission('farm-management.delete')
+                                                            {{-- The one there is no way back from, so it only
+                                                                 appears for a tank already deleted and says
+                                                                 plainly what it destroys. --}}
+                                                            <form action="{{ route('farm-management.tanks.force-destroy', [$farm->id, $tank->id]) }}"
+                                                                method="POST" class="d-inline confirm-form">
+                                                                @csrf @method('DELETE')
+                                                                <button type="button" class="btn btn-sm btn-danger btn-action confirm-btn"
+                                                                    data-confirm="This erases the tank and every feed record ever logged against it. There is no way back. Leave it deleted instead if you may want it later."
+                                                                    title="Remove permanently">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        @endpermission
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         @endif
                     </div>
@@ -552,10 +690,102 @@
                             </div>
                         @endif
                     </div>
+
+                    {{-- --------------------------------------------------- History --}}
+                    {{-- Who changed what on this farm. Thirty days here against
+                         the app's fifteen: this is where a disagreement gets
+                         settled, and the farmer ringing in has usually spent a
+                         week noticing the problem before they call. --}}
+                    <div class="tab-pane fade" id="tab-activity">
+                        <form method="GET" class="form-inline mb-3">
+                            {{-- Every other query parameter on this page is
+                                 dropped by this form, so the filter is carried
+                                 by itself and the tab is reopened on submit. --}}
+                            <label class="mr-2 mb-0">Show</label>
+                            <select name="activity_category" class="form-control form-control-sm mr-2"
+                                onchange="this.form.submit()">
+                                <option value="">Everything</option>
+                                @foreach (\App\Models\FarmActivity::categories() as $key => $label)
+                                    <option value="{{ $key }}" @selected(request('activity_category') === $key)>
+                                        {{ $label }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <span class="small text-muted">Last {{ $activityWindow }} days</span>
+                            @if (request()->filled('activity_category'))
+                                <a href="{{ route('farm-management.farms.show', $farm->id) }}"
+                                    class="btn btn-sm btn-outline-secondary ml-2">Clear</a>
+                            @endif
+                        </form>
+
+                        @if ($activity->isEmpty())
+                            <p class="text-muted mb-0">
+                                Nothing has been changed on this farm in the last
+                                {{ $activityWindow }} days.
+                            </p>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th style="white-space: nowrap;">When</th>
+                                            <th>Who</th>
+                                            <th>Tank</th>
+                                            <th>Category</th>
+                                            <th>What changed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($activity as $entry)
+                                            <tr>
+                                                <td style="white-space: nowrap;">
+                                                    {{ $entry->created_at->format('d M Y') }}
+                                                    <div class="small text-muted">
+                                                        {{ $entry->created_at->format('h:i A') }}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {{ $entry->actor_name ?: 'Unknown' }}
+                                                    <div class="small text-muted">
+                                                        {{ $entry->actor_mobile }}
+                                                        @if ($entry->actor_role)
+                                                            <span class="badge badge-light text-capitalize">
+                                                                {{ $entry->actor_role }}
+                                                            </span>
+                                                        @endif
+                                                    </div>
+                                                </td>
+                                                <td>{{ $entry->tank_name ?: '—' }}</td>
+                                                <td>
+                                                    <span class="badge badge-{{ $entry->action_colour }}">
+                                                        {{ $entry->category_label }}
+                                                    </span>
+                                                </td>
+                                                <td>{{ $entry->description }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+
+    {{-- Reopen the History tab after filtering it, so submitting the filter
+         does not dump the admin back on Details with no idea what happened. --}}
+    @if (request()->filled('activity_category'))
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var tab = document.querySelector('a[href="#tab-activity"]');
+                if (tab && window.jQuery) {
+                    window.jQuery(tab).tab('show');
+                }
+            });
+        </script>
+    @endif
 
 @endsection
 

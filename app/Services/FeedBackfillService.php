@@ -195,6 +195,58 @@ class FeedBackfillService
     }
 
     /**
+     * Drop the ESTIMATE for one day, because the farmer has just said what
+     * actually happened on it.
+     *
+     * "Feed already used" is one number spread evenly over every past day —
+     * a stand-in for days nobody recorded. The moment a real figure is entered
+     * for one of those days, the stand-in for that day is no longer a guess
+     * about an unknown, it is a second claim about a known day. Left in place
+     * it is counted twice: a tank estimated at 1.77 kg for a day the farmer
+     * then records as 6 kg reported 7.77 kg fed, and Total Feed Used climbed
+     * past anything that had ever gone into the pond.
+     *
+     * Only ever removes generated rows. Hand-entered feed carries
+     * is_backfill = 0 and is never touched, so recording a second meal on a
+     * day already corrected changes nothing — the estimate went with the first.
+     *
+     * Deliberately NOT reinstated if that real entry is later deleted. The
+     * estimate was an average across days that no longer applies once one of
+     * them is known, and quietly resurrecting a number the farmer had
+     * overwritten would be worse than leaving the day at zero.
+     *
+     * @return float How much estimate was removed, for the caller to log or ignore.
+     */
+    public function supersedeDay(int $tankId, string $date): float
+    {
+        $day = Carbon::parse($date)->toDateString();
+
+        $rows = Feed::where('tank_id', $tankId)
+            ->where('is_backfill', 1)
+            ->whereDate('feed_date', $day);
+
+        $removed = (float) $rows->sum('feed_quantity');
+
+        if ($removed <= 0) {
+            return 0.0;
+        }
+
+        DB::transaction(function () use ($tankId, $day) {
+            Feed::where('tank_id', $tankId)
+                ->where('is_backfill', 1)
+                ->whereDate('feed_date', $day)
+                ->delete();
+
+            TankFeedHistory::where('tank_id', $tankId)
+                ->where('is_backfill', 1)
+                ->whereDate('feed_date', $day)
+                ->delete();
+        });
+
+        return $removed;
+    }
+
+    /**
      * Spread `$totalUsed` across the tanks and days since stocking.
      *
      * The farm-wide path, still used by the admin panel where one figure is

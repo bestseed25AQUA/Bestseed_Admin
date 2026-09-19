@@ -4,6 +4,9 @@ namespace App\Services;
 
 use App\Models\Feed;
 use App\Models\Tank;
+// Same namespace, but named explicitly so the dependency is visible at the
+// top of the file rather than buried in an app() call halfway down.
+use App\Services\FeedBackfillService;
 use App\Models\TankBatch;
 use App\Models\TankFeedHistory;
 use Carbon\Carbon;
@@ -57,7 +60,16 @@ class TankFeedService
 
         $batchId = $batch->id;
 
-        return DB::transaction(function () use ($tankId, $farmId, $day, $meals, $quantity, $batchId) {
+        // A real figure for this day supersedes the estimate generated for it.
+        //
+        // Same rule as the app's own path — see
+        // [FeedBackfillService::supersedeDay]. Without it the day is counted
+        // twice, once as the "feed already used" average and once as what was
+        // actually fed, and the admin panel and the app would disagree about
+        // the same tank depending on which one recorded the entry.
+        app(FeedBackfillService::class)->supersedeDay($tankId, $day);
+
+        $history = DB::transaction(function () use ($tankId, $farmId, $day, $meals, $quantity, $batchId) {
             $row = [
                 'tank_id'       => $tankId,
                 'farm_id'       => $farmId,
@@ -78,6 +90,16 @@ class TankFeedService
 
             return $history;
         });
+
+        // After the commit, so a log entry can never describe a write that was
+        // rolled back.
+        $tank = Tank::find($tankId);
+
+        if ($tank) {
+            app(FarmActivityLogger::class)->feedRecorded($tank, $day, $meals, $quantity);
+        }
+
+        return $history;
     }
 
     /** Change an existing entry, moving its `feeds` twin with it. */
@@ -86,7 +108,7 @@ class TankFeedService
         $oldMeals    = $history->meals;
         $oldQuantity = $history->feed_quantity;
 
-        return DB::transaction(function () use ($history, $oldMeals, $oldQuantity, $meals, $quantity) {
+        $updated = DB::transaction(function () use ($history, $oldMeals, $oldQuantity, $meals, $quantity) {
             $history->update(['meals' => $meals, 'feed_quantity' => $quantity]);
 
             $feed = $this->twin($history, $oldMeals, $oldQuantity);
@@ -99,11 +121,43 @@ class TankFeedService
 
             return $history->fresh();
         });
+
+        $tank = Tank::find($updated->tank_id);
+
+        if ($tank) {
+            $changes = [];
+
+            // Only what actually moved. A correction that changed the quantity
+            // alone should not claim the meal number changed too.
+            if ((float) $oldQuantity !== $quantity) {
+                $changes['Quantity'] = [$oldQuantity . ' kg', $quantity . ' kg'];
+            }
+
+            if ((float) $oldMeals !== $meals) {
+                $changes['Meal'] = [$oldMeals, $meals];
+            }
+
+            if ($changes) {
+                app(FarmActivityLogger::class)->feedUpdated(
+                    $tank,
+                    (string) $updated->feed_date,
+                    $changes
+                );
+            }
+        }
+
+        return $updated;
     }
 
     /** Remove an entry and its twin. */
     public function delete(TankFeedHistory $history): void
     {
+        // Read before the delete: afterwards the row is gone and there is
+        // nothing left to describe in the log.
+        $tank     = Tank::find($history->tank_id);
+        $date     = (string) $history->feed_date;
+        $quantity = (float) $history->feed_quantity;
+
         DB::transaction(function () use ($history) {
             $tankId = $history->tank_id;
             $feed   = $this->twin($history, $history->meals, $history->feed_quantity);
@@ -113,6 +167,10 @@ class TankFeedService
 
             $this->recomputeTankTotal($tankId);
         });
+
+        if ($tank) {
+            app(FarmActivityLogger::class)->feedDeleted($tank, $date, $quantity);
+        }
     }
 
     /**

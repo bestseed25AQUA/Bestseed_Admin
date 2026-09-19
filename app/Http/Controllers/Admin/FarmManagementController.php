@@ -164,6 +164,17 @@ class FarmManagementController extends Controller
 
         $tanks = Tank::where('farm_id', $farm->id)->orderByDesc('id')->get();
 
+        // Deleted tanks, kept out of the main list but reachable.
+        //
+        // Deleting a tank hides it rather than destroying it, and its feed
+        // records survive — so an admin who removed the wrong one can put it
+        // back with its history intact instead of rebuilding weeks of entries
+        // by hand.
+        $deletedTanks = Tank::onlyTrashed()
+            ->where('farm_id', $farm->id)
+            ->orderByDesc('deleted_at')
+            ->get();
+
         $team = Manager::where('farm_id', $farm->id)->orderByDesc('id')->get();
 
         $totalFeedUsed = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
@@ -180,8 +191,26 @@ class FarmManagementController extends Controller
             ->orderBy('first_name')
             ->get();
 
+        // Who changed what, last 30 days — twice the window the app gets,
+        // because this is where a disagreement gets settled and the farmer
+        // ringing in has already spent a week noticing the problem.
+        //
+        // Capped: a busy farm can log hundreds of entries a week, and the page
+        // is a table, not a search tool.
+        $activityWindow = \App\Models\FarmActivity::ADMIN_WINDOW_DAYS;
+
+        $activity = \App\Models\FarmActivity::forFarm($farm->id)
+            ->recent($activityWindow)
+            ->when(
+                request()->filled('activity_category'),
+                fn ($q) => $q->where('category', request()->input('activity_category'))
+            )
+            ->limit(500)
+            ->get();
+
         return view('admin.farm-management.farms.show', compact(
-            'farm', 'tanks', 'team', 'totalFeedUsed', 'members', 'farmers'
+            'farm', 'tanks', 'deletedTanks', 'team', 'totalFeedUsed', 'members', 'farmers',
+            'activity', 'activityWindow'
         ));
     }
 

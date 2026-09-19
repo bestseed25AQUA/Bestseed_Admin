@@ -30,8 +30,8 @@ class FarmTankController extends Controller
     {
         $this->middleware('permission:farm-management.view')->only(['feedHistory', 'feedReport']);
         $this->middleware('permission:farm-management.create')->only(['store', 'storeFeed']);
-        $this->middleware('permission:farm-management.update')->only(['update', 'toggleStatus', 'updateFeed']);
-        $this->middleware('permission:farm-management.delete')->only(['destroy', 'destroyFeed']);
+        $this->middleware('permission:farm-management.update')->only(['update', 'toggleStatus', 'updateFeed', 'restore']);
+        $this->middleware('permission:farm-management.delete')->only(['destroy', 'destroyFeed', 'forceDestroy']);
     }
 
     public function store(Request $request, $farmId)
@@ -55,6 +55,11 @@ class FarmTankController extends Controller
             // Open its first crop cycle, as the app does. A tank with no batch
             // swallows every feed row written against it: they land with a NULL
             // batch_id, which the farm total and the report both skip.
+            app(\App\Services\FarmActivityLogger::class)->tankAdded($farm, $tank);
+
+            // After the log entry for the tank itself, so the history reads in
+            // the order things happened: the tank exists, then a crop starts
+            // in it.
             if ((int) $tank->status === 1) {
                 app(TankBatchService::class)->open($tank, $tank->stocking_date);
             }
@@ -97,6 +102,17 @@ class FarmTankController extends Controller
 
             $tank->update($data);
 
+            // What the save actually wrote, so reopening the form and pressing
+            // Save without editing anything leaves no entry behind.
+            $moved = collect($tank->getChanges())
+                ->except(['updated_at'])
+                ->mapWithKeys(fn ($value, $key) => [
+                    ucfirst(str_replace('_', ' ', $key)) => (string) $value,
+                ])
+                ->all();
+
+            app(\App\Services\FarmActivityLogger::class)->tankUpdated($tank, $moved);
+
             if ((int) $tank->status !== $wanted) {
                 // Opens a new crop, or closes the running one, and moves the
                 // column with it. Idempotent, so this only ever runs on a real
@@ -113,28 +129,121 @@ class FarmTankController extends Controller
     }
 
     /**
-     * Delete a tank and the feed logged against it.
+     * Hide a tank. Its feed records stay exactly where they are.
      *
-     * Tanks are not soft-deleted, so leaving the feed rows behind would leave
-     * them pointing at a tank that no longer exists — and still counted in the
-     * farm's total feed used.
+     * This used to be permanent, and it destroyed every feed row on the way
+     * out — so an admin removing the wrong tank wiped weeks of records with no
+     * way back. Tanks are soft-deleted now, like farms, and the rows are what
+     * make restoring one worth doing rather than handing back an empty pond.
+     *
+     * The running crop is CLOSED as it goes. The farm's Total Feed Used counts
+     * open batches only, so leaving it open would have a hidden tank still
+     * adding to the farm's figures. The store is deliberately NOT given back:
+     * that feed genuinely left the shed, and deleting a record of a pond does
+     * not put food back in the bag.
      */
     public function destroy($farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
 
         try {
+            // Logged first, while the tank still has a name and a farm to
+            // record it against.
+            app(\App\Services\FarmActivityLogger::class)->tankDeleted($tank);
+
             DB::transaction(function () use ($tank) {
-                TankFeedHistory::where('tank_id', $tank->id)->delete();
-                \App\Models\Feed::where('tank_id', $tank->id)->delete();
-                $tank->delete();
+                TankBatch::where('tank_id', $tank->id)
+                    ->whereNull('ended_at')
+                    ->update(['ended_at' => now()]);
+
+                $tank->status = 0;
+                $tank->save();
+
+                $tank->delete(); // soft
             });
 
-            return redirect()->back()->with('success', 'Tank deleted along with its feed records.');
+            return redirect()->back()->with(
+                'success',
+                'Tank deleted. Its feed records are kept — restore it from the Deleted tanks list.'
+            );
         } catch (\Exception $e) {
             Log::error('Admin tank delete failed', ['tank_id' => $tankId, 'error' => $e->getMessage()]);
 
             return redirect()->back()->with('error', 'Could not delete the tank: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Put a deleted tank back.
+     *
+     * It comes back INACTIVE with its crop still closed, whatever it was when
+     * it went. Reopening the batch would restart a crop nobody asked to
+     * restart and quietly change the farm's totals; an admin who wants it
+     * running again starts a crop deliberately, and is asked for the stocking
+     * date when they do.
+     */
+    public function restore($farmId, $tankId)
+    {
+        $tank = Tank::withTrashed()->where('farm_id', $farmId)->findOrFail($tankId);
+
+        if (!$tank->trashed()) {
+            return redirect()->back()->with('error', 'That tank is not deleted.');
+        }
+
+        try {
+            $tank->restore();
+
+            app(\App\Services\FarmActivityLogger::class)->record(
+                (int) $farmId,
+                \App\Models\FarmActivity::CATEGORY_TANK,
+                \App\Models\FarmActivity::ACTION_UPDATED,
+                "Restored {$tank->tank_name}. It is inactive until a crop is started.",
+                $tank
+            );
+
+            return redirect()->back()->with(
+                'success',
+                'Tank restored. It is inactive — start a crop when it is stocked again.'
+            );
+        } catch (\Exception $e) {
+            Log::error('Admin tank restore failed', ['tank_id' => $tankId, 'error' => $e->getMessage()]);
+
+            return redirect()->back()->with('error', 'Could not restore the tank: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Permanent removal, feed records and all.
+     *
+     * Only reachable for a tank that is ALREADY deleted, so it cannot be
+     * mistaken for the ordinary delete button — this is the one there is no
+     * way back from, and it exists for a tank created by mistake rather than
+     * one that is finished with.
+     */
+    public function forceDestroy($farmId, $tankId)
+    {
+        $tank = Tank::withTrashed()->where('farm_id', $farmId)->findOrFail($tankId);
+
+        if (!$tank->trashed()) {
+            return redirect()->back()->with(
+                'error',
+                'Delete the tank first. Permanent removal is only for tanks already in the deleted list.'
+            );
+        }
+
+        try {
+            DB::transaction(function () use ($tank) {
+                TankFeedHistory::where('tank_id', $tank->id)->delete();
+                Feed::where('tank_id', $tank->id)->delete();
+                TankBatch::where('tank_id', $tank->id)->delete();
+                $tank->forceDelete();
+            });
+
+            return redirect()->back()->with('success', 'Tank permanently removed along with its feed records.');
+        } catch (\Exception $e) {
+            Log::error('Admin tank force delete failed', ['tank_id' => $tankId, 'error' => $e->getMessage()]);
+
+            return redirect()->back()->with('error', 'Could not remove the tank: ' . $e->getMessage());
         }
     }
 
@@ -149,16 +258,46 @@ class FarmTankController extends Controller
      * cycle, so the next crop's feed piled onto the finished one instead of
      * starting from zero.
      */
-    public function toggleStatus($farmId, $tankId)
+    public function toggleStatus(Request $request, $farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
 
+        $activating = !$tank->status;
+
+        // Starting a crop asks the same two questions the app asks.
+        //
+        // Activating a tank begins a NEW crop, so it needs a date to count
+        // days from — defaulting silently to today made a pond stocked a
+        // fortnight ago read as Day 1 — and, when that date is in the past,
+        // whatever it has already been fed. This screen asked neither, so a
+        // tank started here was a crop with no history and the wrong age.
+        if ($activating) {
+            $validator = Validator::make($request->all(), [
+                // before_or_equal:today — a crop cannot have been stocked on a
+                // day that has not happened.
+                'stocking_date'    => ['required', 'date', 'before_or_equal:today'],
+                'feed_used_before' => ['nullable', 'numeric', 'min:0'],
+            ], [
+                'stocking_date.required' => 'Choose the date this crop was stocked.',
+                'stocking_date.before_or_equal' => 'The stocking date cannot be in the future.',
+            ]);
+
+            if ($validator->fails()) {
+                return redirect()->back()->withErrors($validator)->withInput();
+            }
+        }
+
         try {
-            app(TankBatchService::class)->setStatus($tank, $tank->status ? 0 : 1);
+            app(TankBatchService::class)->setStatus(
+                $tank,
+                $activating ? 1 : 0,
+                $activating ? $request->input('stocking_date') : null,
+                $activating ? (float) $request->input('feed_used_before', 0) : 0,
+            );
 
             return redirect()->back()->with(
                 'success',
-                $tank->status
+                $activating
                     ? 'Tank is now active on a new crop.'
                     : 'Tank is now inactive. Its crop is finished and its report stays available.'
             );

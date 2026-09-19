@@ -283,6 +283,32 @@ class FarmAccessController extends Controller
                 );
 
                 $added[] = $member->id;
+
+                // Named in the log, not just counted. "Gave 2 people access"
+                // is exactly the entry nobody can act on later.
+                $person = Farmer::find($farmerId);
+
+                app(\App\Services\FarmActivityLogger::class)->accessGranted(
+                    $farm,
+                    $person
+                        ? (trim($person->first_name . ' ' . $person->last_name) ?: 'Farmer')
+                        : 'Farmer',
+                    $person?->mobile,
+                    $request->input('role'),
+                    // Only what they were actually given, in the same words
+                    // the Setup Access form used to offer them.
+                    collect([
+                        'view_access'        => 'view',
+                        'edit_access'        => 'edit',
+                        'tank_status_access' => 'tank active / inactive',
+                        'total_feed_access'  => 'store stock',
+                        'create_access'      => 'create',
+                        'delete_access'      => 'delete',
+                    ])
+                        ->filter(fn ($label, $key) => (int) ($capped[$key] ?? 0) === 1)
+                        ->values()
+                        ->all()
+                );
             }
         });
 
@@ -391,6 +417,16 @@ class FarmAccessController extends Controller
         }
 
         $member->update(['revoked_at' => now()]);
+
+        $person = $member->farmer;
+
+        app(\App\Services\FarmActivityLogger::class)->accessRevoked(
+            $farm,
+            $person
+                ? (trim($person->first_name . ' ' . $person->last_name) ?: 'Farmer')
+                : 'Farmer',
+            $person?->mobile
+        );
 
         return response()->json([
             'status'  => true,

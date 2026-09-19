@@ -204,6 +204,13 @@ Route::prefix('farmer')->group(function () {
         //low feed limit check and send notification
         Route::get('/feed/check-limit/{farm_id}', [FarmController::class, 'checkFeedLimit'])->middleware('farm.access:view');
 
+        // Who changed what on this farm, last 15 days.
+        //
+        // No farm.access middleware: the controller applies a STRICTER rule
+        // than any ability — owner or partner only — and `farm.access:view`
+        // would let a manager through before it got the chance.
+        Route::get('/farm/{farm}/activity', [\App\Http\Controllers\Api\User_apis\FarmActivityController::class, 'index']);
+
         //farm management end
 
         Route::get('/profile', [UserAuthController::class, 'profile']);

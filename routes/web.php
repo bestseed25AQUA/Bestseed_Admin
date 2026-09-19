@@ -209,6 +209,9 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::put('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'update'])->name('farm-management.tanks.update');
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'destroy'])->name('farm-management.tanks.destroy');
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/toggle-status', [FarmTankController::class, 'toggleStatus'])->name('farm-management.tanks.toggle-status');
+    // Tanks are soft-deleted, so they can come back — or be removed for good.
+    Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/restore', [FarmTankController::class, 'restore'])->name('farm-management.tanks.restore');
+    Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}/force', [FarmTankController::class, 'forceDestroy'])->name('farm-management.tanks.force-destroy');
     Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'feedHistory'])->name('farm-management.tanks.feed');
     Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed/report', [FarmTankController::class, 'feedReport'])->name('farm-management.tanks.feed.report');
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/feed', [FarmTankController::class, 'storeFeed'])->name('farm-management.tanks.feed.store');
