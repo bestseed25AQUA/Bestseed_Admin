@@ -94,16 +94,25 @@ final class FarmPermission
      */
     public function canShareAccess(): bool
     {
-        if (!$this->isOwner() && !$this->isPartner()) {
-            return false;
-        }
+        // CREATE is the ability that decides it, for a manager and a partner
+        // alike. Bringing someone onto the farm is creating something, so the
+        // checkbox the owner already ticks for "may add things" governs it —
+        // rather than the role, which said a partner could always share and a
+        // manager never could, whatever either had been given.
+        return $this->isOwner() || $this->create;
+    }
 
-        return $this->view
-            || $this->edit
-            || $this->tankStatus
-            || $this->totalFeed
-            || $this->create
-            || $this->delete;
+    /**
+     * Whether they may TAKE access away.
+     *
+     * Create AND delete. Delete alone is not enough: without create they
+     * cannot reach the access screen at all, so a grant of delete on its own
+     * would be a permission with nowhere to be used. Delete is what turns
+     * "may bring people in" into "may also remove them".
+     */
+    public function canRevokeAccess(): bool
+    {
+        return $this->isOwner() || ($this->create && $this->delete);
     }
 
     /**
@@ -131,7 +140,8 @@ final class FarmPermission
             'is_owner'    => $this->isOwner(),
             // Sent rather than left for the app to re-derive, so the option it
             // offers and the rule the server enforces cannot drift apart.
-            'can_share_access' => $this->canShareAccess(),
+            'can_share_access'  => $this->canShareAccess(),
+            'can_revoke_access' => $this->canRevokeAccess(),
             'permissions' => [
                 'view'        => $this->view,
                 'edit'        => $this->edit,

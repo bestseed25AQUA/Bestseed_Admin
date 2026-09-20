@@ -874,12 +874,8 @@ class FarmController extends Controller
                 // feed is history — it drops out of the farm's Total Feed Used
                 // rather than inflating it for ever. The rows stay put; they
                 // are simply no longer part of what is in progress.
-                $farm->total_feed_used = Feed::where('farm_id', $farm->id)
-                    ->whereIn(
-                        'batch_id',
-                        TankBatch::where('farm_id', $farm->id)->open()->pluck('id')
-                    )
-                    ->sum('feed_quantity');
+                $farm->total_feed_used = app(FarmStoreService::class)
+                    ->totalFeedUsedFor($farm);
 
                 // What is LEFT of the stock, so the card can show it beside
                 // Total Feed Used. The raw `store` column never moves as feed
@@ -2869,13 +2865,11 @@ public function addTodaysQuantity(Request $request){
             ], 404);
         }
 
-        // Total feed used in this farm — running crops only, matching the farm
-        // list. A finished batch's feed is history, not stock in progress.
-        $openBatches = TankBatch::where('farm_id', $farm->id)->open()->pluck('id');
-
-        $farm->total_feed_used = Feed::where('farm_id', $farm->id)
-            ->whereIn('batch_id', $openBatches)
-            ->sum('feed_quantity');
+        // Running crops only, through the same helper the farm list uses, so
+        // the card and this header cannot disagree. See
+        // [FarmStoreService::totalFeedUsedFor] for what "running" means.
+        $farm->total_feed_used = app(FarmStoreService::class)
+            ->totalFeedUsedFor($farm);
 
         // What is left in the shed — deliberately not the figure above, and
         // computed in one place so the list, this header and the low-feed

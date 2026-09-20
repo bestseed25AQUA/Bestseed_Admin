@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Farm;
 use App\Models\Feed;
+use App\Models\TankBatch;
 
 /**
  * What is left in a farm's feed store, and what to write when someone edits it.
@@ -36,6 +37,51 @@ class FarmStoreService
      * NULL — a `!=` comparison silently drops them, and they are hand-entered
      * feed that must count.
      */
+    /**
+     * Feed used by the crops CURRENTLY RUNNING on this farm.
+     *
+     * The figure the app shows as "Total feed used". A finished crop's feed is
+     * history and drops out — the farm's total is what is in progress, not what
+     * the farm has ever been fed.
+     *
+     * Two conditions, not one. The batch must be open AND its tank must be
+     * active, because the two can disagree: a tank deactivated by an older code
+     * path, or edited straight in the database, can be left showing inactive
+     * while its batch is still open. Counting on the batch alone then added a
+     * harvested tank's feed to the total — a farm reading 560 kg when the two
+     * running tanks held 260 between them, the extra 300 belonging to a tank
+     * the farmer could see was switched off.
+     *
+     * Requiring both means the total can only ever agree with what is on
+     * screen. Reconciling the underlying rows is a separate job:
+     * `php artisan tanks:reconcile-status --fix`.
+     *
+     * One place, because this was computed in two and nothing kept them in
+     * step.
+     */
+    public function totalFeedUsedFor(Farm $farm): float
+    {
+        $runningBatches = TankBatch::query()
+            ->where('tank_batches.farm_id', $farm->id)
+            ->open()
+            ->whereExists(function ($q) {
+                $q->selectRaw(1)
+                    ->from('tanks')
+                    ->whereColumn('tanks.id', 'tank_batches.tank_id')
+                    ->where('tanks.status', 1)
+                    ->whereNull('tanks.deleted_at');
+            })
+            ->pluck('id');
+
+        if ($runningBatches->isEmpty()) {
+            return 0.0;
+        }
+
+        return (float) Feed::where('farm_id', $farm->id)
+            ->whereIn('batch_id', $runningBatches)
+            ->sum('feed_quantity');
+    }
+
     public function recordedFeedFor(Farm $farm): float
     {
         // Aliased `total_fed` / `backfilled`, not `total` / `generated`:

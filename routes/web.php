@@ -185,6 +185,10 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     // Farm Management — farms and their teams.
     Route::get('admin/farm-management/farms', [FarmManagementController::class, 'index'])->name('farm-management.farms.index');
     Route::get('admin/farm-management/farms/create', [FarmManagementController::class, 'create'])->name('farm-management.farms.create');
+
+    // Asked by the create form as soon as an owner is picked. Before `farms/{farm}`
+    // below, or "farmers" would be read as a farm id.
+    Route::get('admin/farm-management/farmers/{farmer}/allowance', [FarmManagementController::class, 'farmerAllowance'])->name('farm-management.farmers.allowance');
     Route::post('admin/farm-management/farms', [FarmManagementController::class, 'store'])->name('farm-management.farms.store');
     Route::get('admin/farm-management/farms/{farm}', [FarmManagementController::class, 'show'])->name('farm-management.farms.show');
     Route::get('admin/farm-management/farms/{farm}/edit', [FarmManagementController::class, 'edit'])->name('farm-management.farms.edit');

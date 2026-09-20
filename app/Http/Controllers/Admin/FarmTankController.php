@@ -12,6 +12,7 @@ use App\Services\TankBatchService;
 use App\Services\TankFeedReportService;
 use App\Services\TankFeedService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -338,10 +339,28 @@ class FarmTankController extends Controller
             ? $batches->firstWhere('id', (int) $request->input('batch'))
             : $batches->first();
 
+        // Date filter. Either end may be given on its own — "everything since
+        // the 5th" and "everything up to the 5th" are both things an admin
+        // chasing one figure actually asks.
+        //
+        // Parsed rather than passed through: a malformed `?from=` would
+        // otherwise reach the query and throw on a page that should simply
+        // ignore it.
+        $from = $this->asDate($request->input('from'));
+        $to   = $this->asDate($request->input('to'));
+
+        // Back to front is a slip, not a request for nothing. Swapped, so the
+        // filter answers what was meant instead of returning an empty table.
+        if ($from && $to && $from->greaterThan($to)) {
+            [$from, $to] = [$to, $from];
+        }
+
         $entries = TankFeedHistory::where('tank_id', $tank->id)
             // A tank whose rows predate batches has none to filter by; showing
             // everything beats showing nothing.
             ->when($selected, fn ($q) => $q->where('batch_id', $selected->id))
+            ->when($from, fn ($q) => $q->whereDate('feed_date', '>=', $from->toDateString()))
+            ->when($to, fn ($q) => $q->whereDate('feed_date', '<=', $to->toDateString()))
             ->orderByDesc('feed_date')
             ->orderByDesc('id')
             ->get();
@@ -352,7 +371,30 @@ class FarmTankController extends Controller
             'entries'  => $entries,
             'batches'  => $batches,
             'selected' => $selected,
+            'from'     => $from?->toDateString(),
+            'to'       => $to?->toDateString(),
         ]);
+    }
+
+    /**
+     * A user-supplied date, or null when it is not one.
+     *
+     * Carbon::parse throws on rubbish, and an admin who typed into the box by
+     * hand should get the unfiltered page back rather than a stack trace.
+     */
+    private function asDate($value): ?Carbon
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->startOfDay();
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     public function storeFeed(Request $request, $farmId, $tankId)
@@ -438,79 +480,69 @@ class FarmTankController extends Controller
     }
 
     /**
-     * The same feed report the app offers, streamed straight to the browser.
+     * One finished crop's feed report, as a PDF.
      *
-     * The app's endpoint writes a file into public/reports and returns a link,
-     * because a phone needs a URL to hand to its downloader. A browser does
-     * not, so this streams the rows instead — no files accumulating on disk.
+     * The same document the farmer downloads in the app, built by the same
+     * [TankFeedReportService], so a farmer ringing up about a figure is reading
+     * exactly what admin can see.
+     *
+     * Sent inline rather than written to disk: the app's endpoint saves a file
+     * into public/reports and returns a link because a phone needs a URL to
+     * hand its downloader; a browser does not.
+     *
+     * There was a CSV of the whole tank here too. It is gone — it spanned every
+     * batch while the PDF described one, so the two files disagreed about the
+     * same tank, and nothing consumed it.
      */
     public function feedReport(Request $request, $farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
         $farm = Farm::withTrashed()->findOrFail($farmId);
 
-        // `?format=pdf` renders the SAME document the farmer downloads in the
-        // app, for whichever batch is being looked at. Admin could only export
-        // a CSV before, so a farmer ringing up about a figure in their report
-        // was reading something nobody on this side could see.
-        if ($request->query('format') === 'pdf') {
-            $batch = $request->filled('batch')
-                ? TankBatch::where('tank_id', $tank->id)->find($request->query('batch'))
-                : null;
+        // Which crop is being reported on. Scoped to THIS tank, so a batch id
+        // belonging to another tank cannot be read by guessing the number.
+        $batch = $request->filled('batch')
+            ? TankBatch::where('tank_id', $tank->id)->find($request->query('batch'))
+            : null;
 
-            $data = app(TankFeedReportService::class)->build($tank, $batch);
-
-            if ($data === null) {
-                return redirect()->back()->with(
-                    'error',
-                    'This tank has no stocking date, so there is nothing to report yet.'
-                );
-            }
-
-            return Pdf::loadView('reports.tank-feed', $data)
-                ->setPaper('a4')
-                ->download(sprintf(
-                    '%s_%s_feed_%s.pdf',
-                    \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
-                    \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
-                    now()->format('Y_m_d')
-                ));
+        // FINISHED crops only.
+        //
+        // A running batch is still being fed, so a report of it is a snapshot
+        // that is wrong by tomorrow — and a farmer handed one has a document
+        // that disagrees with the app a day later. A harvested crop is settled:
+        // its feed total, harvest weight and FCR will not move again.
+        //
+        // Enforced here and not only in the view: the button is hidden for a
+        // running batch, but the URL is guessable.
+        if (!$batch || !$batch->ended_at) {
+            return redirect()->back()->with(
+                'error',
+                'A report can only be downloaded for a finished crop. '
+                . 'Mark the tank inactive to harvest this one first.'
+            );
         }
 
-        $filename = sprintf(
-            '%s_%s_feed_%s.csv',
-            \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
-            \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
-            now()->format('Y_m_d')
-        );
+        $data = app(TankFeedReportService::class)->build($tank, $batch);
 
-        $entries = TankFeedHistory::where('tank_id', $tank->id)
-            ->orderBy('feed_date')
-            ->orderBy('id')
-            ->get();
+        if ($data === null) {
+            return redirect()->back()->with(
+                'error',
+                'This tank has no stocking date, so there is nothing to report yet.'
+            );
+        }
 
-        return response()->streamDownload(function () use ($entries, $farm, $tank) {
-            $out = fopen('php://output', 'w');
-
-            fputcsv($out, ['Farm', $farm->farm_name]);
-            fputcsv($out, ['Tank', $tank->tank_name]);
-            fputcsv($out, ['Stocking Date', $tank->stocking_date ?: $farm->stocking_date]);
-            fputcsv($out, ['Total Feed Used (kg)', $tank->total_feed_used]);
-            fputcsv($out, []);
-            fputcsv($out, ['ID', 'Date', 'Meals', 'Feed Quantity (kg)', 'Source']);
-
-            foreach ($entries as $entry) {
-                fputcsv($out, [
-                    $entry->id,
-                    \Illuminate\Support\Carbon::parse($entry->feed_date)->format('Y-m-d'),
-                    $entry->meals,
-                    $entry->feed_quantity,
-                    $entry->is_backfill ? 'Backfilled' : 'Logged',
-                ]);
-            }
-
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv']);
+        // The batch number goes in the filename. An admin pulling three crops
+        // for one tank otherwise ends up with three files whose names differ by
+        // nothing at all.
+        return Pdf::loadView('reports.tank-feed', $data)
+            ->setPaper('a4')
+            ->download(sprintf(
+                '%s_%s_batch%s_feed_%s.pdf',
+                \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
+                \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
+                $batch->batch_no,
+                now()->format('Y_m_d')
+            ));
     }
 
     private function tankRules(): array

@@ -7,17 +7,24 @@
                 <i class="fas fa-utensils mr-2"></i>{{ $tank->tank_name }} — Feed Records
             </h3>
             @permission('farm-management.view')
-                {{-- The PDF is the same document the farmer downloads in the
-                     app, for the batch being viewed. The CSV stays alongside it
-                     for the whole tank, every batch, as a spreadsheet. --}}
-                <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf{{ isset($selected) && $selected ? '&batch=' . $selected->id : '' }}"
-                    class="btn btn-sm btn-primary float-right ml-2">
-                    <i class="fas fa-file-pdf mr-1"></i> Feed Report (PDF)
-                </a>
-                <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}"
-                    class="btn btn-sm btn-outline-primary float-right">
-                    <i class="fas fa-download mr-1"></i> Download CSV
-                </a>
+                {{-- FINISHED crops only.
+
+                     A running batch is still being fed, so its report is a
+                     snapshot that is wrong by tomorrow — and a farmer handed
+                     one has a document that disagrees with the app a day later.
+                     A harvested crop is settled: its feed total, harvest weight
+                     and FCR will not move again, which is what makes it worth
+                     keeping.
+
+                     Every finished batch also has its own button in the table
+                     below, so an older crop does not have to be selected first. --}}
+                @if (isset($selected) && $selected && $selected->ended_at)
+                    <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&batch={{ $selected->id }}"
+                        class="btn btn-sm btn-primary float-right ml-2">
+                        <i class="fas fa-file-pdf mr-1"></i>
+                        Feed Report (PDF) · #{{ $selected->batch_no }}
+                    </a>
+                @endif
             @endpermission
 
             <nav aria-label="breadcrumb">
@@ -102,6 +109,7 @@
                                     <th>Days fed</th><th>Feed used</th>
                                     <th>Harvest</th><th>FCR</th><th>Status</th>
                                     <th class="text-center">Records</th>
+                                    <th class="text-center text-nowrap">Download</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -140,6 +148,22 @@
                                                title="Show this batch's records">
                                                 <i class="fas fa-list"></i>
                                             </a>
+                                        </td>
+
+                                        {{-- Straight from the row, for any FINISHED batch, so an
+                                             older crop does not have to be selected first. A
+                                             running one has nothing settled to report yet — see
+                                             the note on the header button. --}}
+                                        <td class="text-center text-nowrap">
+                                            @if ($batch->ended_at)
+                                                <a class="btn btn-sm btn-primary btn-action"
+                                                   href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&batch={{ $batch->id }}"
+                                                   title="Feed report for batch #{{ $batch->batch_no }} (PDF)">
+                                                    <i class="fas fa-file-pdf"></i>
+                                                </a>
+                                            @else
+                                                <span class="text-muted small">Still running</span>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
@@ -236,8 +260,68 @@
 
         <div class="card">
             <div class="card-body">
+                {{-- Date filter.
+
+                     Either end on its own is a real question — "everything
+                     since the 5th", "everything up to the 5th" — so neither is
+                     required. The batch being viewed rides along in a hidden
+                     field, or filtering would silently throw you back to the
+                     newest crop. --}}
+                @php
+                    $filtering = !empty($from) || !empty($to);
+                @endphp
+
+                <form method="GET" class="form-inline mb-3">
+                    @if (isset($selected) && $selected)
+                        <input type="hidden" name="batch" value="{{ $selected->id }}">
+                    @endif
+
+                    <label class="small text-muted mr-2 mb-0" for="from">From</label>
+                    <input type="date" id="from" name="from" value="{{ $from ?? '' }}"
+                           class="form-control form-control-sm mr-3 mb-2 mb-sm-0">
+
+                    <label class="small text-muted mr-2 mb-0" for="to">To</label>
+                    <input type="date" id="to" name="to" value="{{ $to ?? '' }}"
+                           class="form-control form-control-sm mr-3 mb-2 mb-sm-0">
+
+                    <button type="submit" class="btn btn-sm btn-primary mr-2 mb-2 mb-sm-0">
+                        <i class="fas fa-search mr-1"></i> Search
+                    </button>
+
+                    @if ($filtering)
+                        <a class="btn btn-sm btn-outline-secondary mb-2 mb-sm-0"
+                           href="{{ route('farm-management.tanks.feed', [$farm->id, $tank->id]) }}{{ isset($selected) && $selected ? '?batch=' . $selected->id : '' }}">
+                            Clear
+                        </a>
+                        <span class="small text-muted ml-3">
+                            {{ $entries->count() }} {{ Str::plural('record', $entries->count()) }}
+                            @if ($from && $to)
+                                between {{ \Carbon\Carbon::parse($from)->format('d-m-Y') }}
+                                and {{ \Carbon\Carbon::parse($to)->format('d-m-Y') }}
+                            @elseif ($from)
+                                from {{ \Carbon\Carbon::parse($from)->format('d-m-Y') }} onwards
+                            @else
+                                up to {{ \Carbon\Carbon::parse($to)->format('d-m-Y') }}
+                            @endif
+                            &middot; {{ number_format($entries->sum('feed_quantity'), 2) }} kg
+                        </span>
+                    @endif
+                </form>
+
                 @if ($entries->isEmpty())
-                    <p class="text-muted mb-0">No feed has been recorded for this tank yet.</p>
+                    {{-- Said differently when a filter is on: "nothing recorded"
+                         and "nothing in these dates" send an admin looking in
+                         two different places. --}}
+                    @if ($filtering)
+                        <p class="text-muted mb-0">
+                            No feed recorded in those dates.
+                            <a href="{{ route('farm-management.tanks.feed', [$farm->id, $tank->id]) }}{{ isset($selected) && $selected ? '?batch=' . $selected->id : '' }}">
+                                Show all records
+                            </a>
+                        </p>
+                    @else
+                        <p class="text-muted mb-0">No feed has been recorded for this tank yet.</p>
+                    @endif
                 @else
                     <div class="table-responsive">
                         <table class="table table-hover">

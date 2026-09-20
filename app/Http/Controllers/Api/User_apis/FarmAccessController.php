@@ -59,10 +59,11 @@ class FarmAccessController extends Controller
     /**
      * The caller's standing, having established they may give access away.
      *
-     * Owners and partners. A partner co-owns the farm and may bring people in;
-     * a manager is staff. Previously anyone holding any permission could pass
-     * it on, so a manager given nothing but view access could appoint managers
-     * and partners of their own and quietly widen who reaches the farm.
+     * The owner, or anyone holding CREATE — manager or partner, the same rule
+     * for both. It used to turn on the ROLE: a partner could always share and a
+     * manager never could, whatever either had actually been given. Now the
+     * owner decides per person, with the checkbox they already tick for "may
+     * add things to this farm".
      *
      * Enforced here and not only in the app: the app decides what to offer,
      * this decides what happens.
@@ -74,7 +75,28 @@ class FarmAccessController extends Controller
         if (!$permission->canShareAccess()) {
             throw new HttpResponseException(response()->json([
                 'status'  => false,
-                'message' => 'Only the farm owner or a partner can give access to this farm.',
+                'message' => 'You need create access on this farm to give someone access.',
+            ], 403));
+        }
+
+        return [$farm, $permission];
+    }
+
+    /**
+     * The caller's standing, having established they may take access away.
+     *
+     * Create AND delete — see [FarmPermission::canRevokeAccess]. Removing
+     * somebody is the destructive half of managing access, so it is handed over
+     * separately from bringing people in.
+     */
+    private function requireRevoker(Request $request, $farmId): array
+    {
+        [$farm, $permission] = $this->callerPermission($request, $farmId);
+
+        if (!$permission->canRevokeAccess()) {
+            throw new HttpResponseException(response()->json([
+                'status'  => false,
+                'message' => 'You need create and delete access on this farm to remove someone.',
             ], 403));
         }
 
@@ -400,19 +422,20 @@ class FarmAccessController extends Controller
             ], 404);
         }
 
-        // Taking access away is the same authority as giving it, so a manager
-        // is refused here too — including from any rows a manager admitted
-        // before this rule existed. Otherwise they could still remove the
-        // owner's own appointees by having once granted them.
-        [$farm, $mine] = $this->requireSharer($request, $member->farm_id);
+        // Create AND delete, or the owner. The "you may only remove people you
+        // admitted yourself" rule that used to sit here belonged to the older
+        // role-based scheme; with delete handed over deliberately per person,
+        // holding it means holding it for the farm, not only for one's own
+        // appointees.
+        [$farm, $mine] = $this->requireRevoker($request, $member->farm_id);
 
-        $isOwner = $mine->isOwner();
-        $admittedThem = (int) $member->granted_by === (int) $request->user()->id;
-
-        if (!$isOwner && !$admittedThem) {
+        // The owner is not a member and has no row here, so there is nothing
+        // to guard on that side — but a member must not be able to remove
+        // themselves and leave a farm with nobody able to manage access.
+        if (!$mine->isOwner() && (int) $member->farmer_id === (int) $request->user()->id) {
             return response()->json([
                 'status'  => false,
-                'message' => 'You can only remove people you gave access to.',
+                'message' => 'You cannot remove your own access.',
             ], 403);
         }
 

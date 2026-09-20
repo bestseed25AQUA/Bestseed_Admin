@@ -91,8 +91,8 @@
                                         @endif
                                     </td>
                                     <td>
-                                        {{ $farm->tanks_count }}
-                                        <small class="text-muted">({{ $farm->active_tanks_count }} active)</small>
+                                        {{ $farm->tanks_count + $farm->deleted_tanks_count }}
+                                        <small class="text-muted">({{ $farm->active_tanks_count }} active{{ $farm->deleted_tanks_count ? ', ' . $farm->deleted_tanks_count . ' deleted' : '' }})</small>
                                     </td>
                                     <td>
                                         <span class="badge bg-info">{{ $farm->managers_count }} mgr</span>

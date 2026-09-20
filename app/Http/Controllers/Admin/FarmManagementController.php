@@ -9,7 +9,9 @@ use App\Models\Farmer;
 use App\Models\Feed;
 use App\Models\Manager;
 use App\Models\Tank;
+use App\Models\TankBatch;
 use App\Services\FarmStoreService;
+use App\Services\SubscriptionService;
 use App\Services\FarmTankEditService;
 use App\Services\FeedBackfillService;
 use Carbon\Carbon;
@@ -43,8 +45,16 @@ class FarmManagementController extends Controller
         $farms = Farm::withTrashed()
             ->with(['farmer', 'images'])
             ->withCount([
+                // Live tanks, and the DELETED ones alongside them.
+                //
+                // `tanks_count` obeys the model's soft-delete scope, so a farm
+                // with five tanks and one deleted read "5" here while its own
+                // detail page offered a "Deleted tanks (1)" section. The list
+                // and the page it links to disagreed about how many tanks the
+                // farm had.
                 'tanks',
                 'tanks as active_tanks_count' => fn ($q) => $q->where('status', 1),
+                'tanks as deleted_tanks_count' => fn ($q) => $q->onlyTrashed(),
                 // Who holds access, not how many codes were issued — the
                 // access-code counts went with the QR flow.
                 'accessMembers as access_members_count',
@@ -92,6 +102,26 @@ class FarmManagementController extends Controller
 
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        // The owner's farm allowance.
+        //
+        // Admin is an override tool, so this WARNS rather than refuses: a
+        // farmer who paid at the office should not have to wait for a payment
+        // record before their farm exists. `override_allowance` is the tick the
+        // form asks for, and it is recorded in the flash message so the reason
+        // is visible afterwards rather than being a silent exception.
+        $subs    = app(SubscriptionService::class);
+        $ownerId = (int) $request->input('farmer_id');
+        $allowed = $ownerId > 0 ? $subs->canCreateFarm($ownerId) : true;
+
+        if (!$allowed && !$request->boolean('override_allowance')) {
+            return redirect()->back()->withInput()->with(
+                'error',
+                'This farmer has used their farm allowance. '
+                . $subs->refusalMessage($ownerId)
+                . ' Tick "Create anyway" to add it regardless.'
+            );
         }
 
         try {
@@ -158,6 +188,43 @@ class FarmManagementController extends Controller
      * Farm detail — the one screen that shows the whole picture: owner, tanks,
      * team, and who holds access to it.
      */
+    /**
+     * One farmer's farm allowance, for the create form.
+     *
+     * Answers the question the form now asks the moment an owner is picked:
+     * how many farms do they already own, and may they have another? The same
+     * [SubscriptionService] the app and the API use, so admin cannot be told
+     * something the farmer's own phone disagrees with.
+     */
+    public function farmerAllowance($farmerId)
+    {
+        $farmer = Farmer::find($farmerId);
+
+        if (!$farmer) {
+            return response()->json(['status' => false, 'message' => 'Farmer not found'], 404);
+        }
+
+        $subs   = app(SubscriptionService::class);
+        $status = $subs->statusFor((int) $farmer->id);
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'farmer'        => trim($farmer->first_name . ' ' . $farmer->last_name),
+                'owned_farms'   => $status['owned_farms'],
+                'free_limit'    => $status['free_limit'],
+                'can_create'    => $status['can_create_farm'],
+                'needs_plan'    => $status['needs_subscription'],
+                'message'       => $status['message'],
+                // Present only while a plan is live, so the form can say what
+                // is carrying them past the free limit.
+                'subscription'  => $status['subscription']['is_active'] ?? false
+                    ? $status['subscription']
+                    : null,
+            ],
+        ]);
+    }
+
     public function show($id)
     {
         $farm = Farm::withTrashed()->with(['farmer', 'images'])->findOrFail($id);
@@ -177,7 +244,40 @@ class FarmManagementController extends Controller
 
         $team = Manager::where('farm_id', $farm->id)->orderByDesc('id')->get();
 
-        $totalFeedUsed = Feed::where('farm_id', $farm->id)->sum('feed_quantity');
+        // Running crops only, through the same helper the app and the API use.
+        //
+        // This was `Feed::where('farm_id')->sum()` — every kilo the farm had
+        // EVER been fed, across finished crops and switched-off tanks alike. A
+        // farm reading 1430 here showed 930 in the app, and reactivating a tank
+        // made it worse: the new crop's feed was added to the old crop's
+        // instead of replacing it.
+        $totalFeedUsed = app(FarmStoreService::class)->totalFeedUsedFor($farm);
+
+        // Each tank's feed for the crop CURRENTLY in it, not its lifetime.
+        //
+        // `tanks.total_feed_used` accumulates across batches, so Tank1 read 700
+        // — 500 from the crop that was harvested plus 200 from the one started
+        // after it. The app shows this batch alone; so does this now.
+        //
+        // Two queries rather than one per tank: the batch ids first, then one
+        // grouped sum over them.
+        $currentBatchFor = [];
+        foreach ($tanks as $t) {
+            $currentBatchFor[$t->id] = optional(TankBatch::currentFor((int) $t->id))->id;
+        }
+
+        $batchTotals = Feed::whereIn('batch_id', array_filter($currentBatchFor))
+            ->selectRaw('batch_id, SUM(feed_quantity) AS total')
+            ->groupBy('batch_id')
+            ->pluck('total', 'batch_id');
+
+        foreach ($tanks as $t) {
+            $batchId = $currentBatchFor[$t->id] ?? null;
+
+            $t->current_batch_feed = $batchId
+                ? (float) ($batchTotals[$batchId] ?? 0)
+                : 0.0;
+        }
 
         // Who holds access. There is no longer a separate list of issued codes
         // sitting behind this — access is given to a person directly.
@@ -609,18 +709,14 @@ class FarmManagementController extends Controller
                 'stocking_date' => $row['stocking_date'],
             ]);
 
-            $batch = $batches->open(
+            // open() builds the back-history itself when the date is in the
+            // past — see TankBatchService::open. Calling applyForTank here as
+            // well wrote it TWICE: a tank added with 120kg over six days came
+            // out holding 240, and the farm's total with it.
+            $batches->open(
                 $tank,
                 $row['stocking_date'],
                 $row['feed_used_before']
-            );
-
-            $this->backfill->applyForTank(
-                $farm,
-                $tank->id,
-                $row['stocking_date'],
-                $row['feed_used_before'],
-                $batch->id
             );
 
             $ids[] = $tank->id;

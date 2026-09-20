@@ -20,6 +20,16 @@
             @endforeach
         </select>
         <small class="text-muted">The owner sees this farm in the app and can give others access to it.</small>
+
+        {{-- The owner's standing, fetched the moment one is picked.
+
+             Admin could add a farmer their fifth farm without ever being told
+             they were past the free limit — while the same farmer's app refused
+             them at three. The two now read from one SubscriptionService, so
+             admin sees what the farmer sees. --}}
+        @if (!$farm)
+            <div id="allowance_note" class="mt-2" style="display:none;"></div>
+        @endif
     </div>
 
     <div class="col-md-4 form-group">
@@ -40,16 +50,14 @@
         <small class="text-muted">Set this first — a stocking date row appears for each tank below.</small>
     </div>
 
-    {{-- Edit only. On create the farm's date is the earliest of its tanks,
-         taken from the rows below, so asking for it twice invites the two to
-         disagree. --}}
-    @if ($farm)
-        <div class="col-md-4 form-group">
-            <label for="stocking_date">Stocking Date</label>
-            <input type="date" class="form-control" id="stocking_date" name="stocking_date"
-                value="{{ old('stocking_date', isset($farm->stocking_date) ? \Illuminate\Support\Carbon::parse($farm->stocking_date)->format('Y-m-d') : '') }}">
-        </div>
-    @endif
+    {{-- The farm's own stocking date is NOT asked for.
+
+         It is always the earliest of its tanks, and the controller derives it
+         from them on every save — see the `$earliest` lookups in store() and
+         update(). Offering a field for it invited the two to disagree, and the
+         answer typed here lost to the tanks a moment later anyway. Each tank
+         carries its own date in the rows below, which is the figure that
+         actually drives day counts, reports and back-history. --}}
 
     {{-- Per-tank stocking dates, mirroring the app.
          Tanks are stocked as ponds are prepared, not all on one day, so each
@@ -66,8 +74,10 @@
             <label class="d-block">Tank Stocking Dates</label>
             <small class="text-muted d-block mb-2">
                 A tank dated before today is asked for the feed already used, spread
-                across every day from stocking up to yesterday. Changing a figure
-                rebuilds only the generated history for that tank.
+                across every day from stocking up to yesterday. That figure does NOT
+                come off the store — it is history being recorded, not stock going out
+                today. Changing a figure rebuilds only the generated history for that
+                tank.
             </small>
             <div class="border rounded px-3 pt-3 pb-1" id="existing_tank_rows">
                 @foreach ($tanks as $t)
@@ -92,24 +102,42 @@
                         </div>
                     </div>
                 @endforeach
+
+                {{-- Tanks being ADDED continue this same list.
+                     They were a second boxed section with its own heading
+                     underneath, which read as a different kind of thing —
+                     Tank5 belongs in the run of tanks, not in an annexe. --}}
+                <div id="tank_rows" data-existing="{{ $tanks->count() }}"></div>
             </div>
         </div>
 
         <input type="hidden" name="existing_tanks_meta" id="existing_tanks_meta">
     @endif
 
+    {{-- CREATE only: the farm has no tanks yet, so this box IS the list.
+         On edit the same rows are appended inside the existing-tanks box
+         above, so a newly added tank reads as the next tank rather than a
+         separate section. --}}
     @if (!$farm)
-    <div class="col-12 form-group" id="tank_rows_wrap" style="display:none;">
-        <label class="d-block">Tank Stocking Dates</label>
-        <small class="text-muted d-block mb-2">
-            A tank dated before today is asked for the feed already used, which is
-            spread across every day from stocking up to yesterday.
-        </small>
-        <div id="tank_rows" class="border rounded px-3 pt-3 pb-1"></div>
-    </div>
-
-    <input type="hidden" name="tanks_meta" id="tanks_meta" value="{{ old('tanks_meta') }}">
+        <div class="col-12 form-group" id="tank_rows_wrap" style="display:none;">
+            <label class="d-block">Tank Stocking Dates</label>
+            <small class="text-muted d-block mb-2">
+                A tank dated before today is asked for the feed already used, which is
+                spread across every day from stocking up to yesterday. That figure does
+                NOT come off the store — it is history being recorded, not stock going
+                out today.
+            </small>
+            <div id="tank_rows" class="border rounded px-3 pt-3 pb-1"
+                 data-existing="0"></div>
+        </div>
     @endif
+
+    {{-- One name or the other: `tanks_meta` describes a farm's whole set at
+         creation, `new_tanks_meta` describes only what is being appended. --}}
+    <input type="hidden"
+           name="{{ $farm ? 'new_tanks_meta' : 'tanks_meta' }}"
+           id="tanks_meta"
+           value="{{ old($farm ? 'new_tanks_meta' : 'tanks_meta') }}">
 
     {{-- Stock ON HAND — the same figure the app shows as Remaining Stock, not
          the raw `store` column. That column is the total ever put in and never
@@ -276,6 +304,90 @@
             });
         });
 
+        // ── Owner's farm allowance ───────────────────────────────────────
+        //
+        // Asked the moment an owner is picked, so admin knows before filling in
+        // the rest of the form — not after submitting it. Create only: an
+        // existing farm has already used its slot.
+        @if (!$farm)
+        $(function () {
+            var $owner = $('#farmer_id');
+            var $note  = $('#allowance_note');
+
+            if (!$owner.length || !$note.length) return;
+
+            var URL = "{{ url('admin/farm-management/farmers') }}";
+            var token = 0;   // only the newest reply is allowed to render
+
+            function box(cls, icon, html) {
+                return '<div class="alert ' + cls + ' py-2 px-3 mb-0 small">'
+                     + '<i class="fas ' + icon + ' mr-1"></i>' + html + '</div>';
+            }
+
+            // The tick that lets a refused farm through. Added and removed with
+            // the warning, so it cannot be left checked from an earlier owner.
+            function overrideHtml() {
+                return '<div class="form-check mt-2 pl-4">'
+                     + '<input class="form-check-input" type="checkbox" '
+                     + 'id="override_allowance" name="override_allowance" value="1">'
+                     + '<label class="form-check-label small" for="override_allowance">'
+                     + '<strong>Create anyway</strong> — the farmer has paid another way, '
+                     + 'or this farm is being set up on their behalf.'
+                     + '</label></div>';
+            }
+
+            function render(d) {
+                var owns = d.owned_farms + ' farm' + (d.owned_farms === 1 ? '' : 's')
+                         + ' already, free limit ' + d.free_limit;
+
+                if (d.can_create) {
+                    var how = d.subscription
+                        ? ' Subscribed until ' + d.subscription.expires_on + '.'
+                        : '';
+                    $note.html(box('alert-success', 'fa-check-circle',
+                        '<strong>' + owns + '.</strong> Can create another.' + how));
+                } else {
+                    $note.html(box('alert-warning', 'fa-exclamation-triangle',
+                        '<strong>' + owns + '.</strong> ' + (d.message || '')
+                        + overrideHtml()));
+                }
+
+                $note.show();
+            }
+
+            function check() {
+                var id = $owner.val();
+                $note.hide().empty();
+
+                if (!id) return;
+
+                var mine = ++token;
+                $note.html(box('alert-light', 'fa-spinner fa-spin', 'Checking this farmer…')).show();
+
+                $.getJSON(URL + '/' + id + '/allowance')
+                    .done(function (res) {
+                        if (mine !== token) return;          // a newer pick won
+                        if (res && res.status) render(res.data);
+                        else $note.hide().empty();
+                    })
+                    .fail(function () {
+                        if (mine !== token) return;
+                        // Never block on a failed check — say so and let the
+                        // save decide, which checks again server-side anyway.
+                        $note.html(box('alert-light', 'fa-info-circle',
+                            'Could not check this farmer\u2019s allowance.'));
+                    });
+            }
+
+            // select2 fires its own event; `change` covers both it and a plain
+            // select if the plugin ever fails to load.
+            $owner.on('change select2:select', check);
+
+            // An owner restored after a validation error should be checked too.
+            if ($owner.val()) check();
+        });
+        @endif
+
         // ── Per-tank stocking dates ──────────────────────────────────────
         //
         // Same flow as the app: choose how many tanks, get a date row for
@@ -286,7 +398,6 @@
             var $wrap    = $('#tank_rows_wrap');
             var $rows    = $('#tank_rows');
             var $meta    = $('#tanks_meta');
-            var $farmDate = $('#stocking_date');
 
             if (!$count.length || !$rows.length) return;
 
@@ -305,12 +416,16 @@
             // Two even columns, with the tank's name folded into the date
             // label. It used to sit in its own col-md-3, which left a quarter
             // of every row empty between the name and the field it belonged to.
+            // Tanks the farm ALREADY has. Rows are numbered on from here, so on
+            // edit the first new row is Tank5 rather than a second Tank1.
+            var BASE = parseInt($rows.data('existing'), 10) || 0;
+
             function rowHtml(i) {
                 return '' +
                   '<div class="row tank-row" data-index="' + i + '">' +
                     '<div class="col-md-6 form-group mb-2">' +
                       '<label class="mb-1 small text-muted">' +
-                        '<strong>Tank' + (i + 1) + '</strong> stocking date' +
+                        '<strong>Tank' + (BASE + i + 1) + '</strong> stocking date' +
                       '</label>' +
                       '<input type="date" class="form-control tank-date" max="' + TODAY + '">' +
                     '</div>' +
@@ -350,22 +465,21 @@
                 }
             }
 
-            function syncFarmDate() {
-                var dates = $rows.find('.tank-date')
-                    .map(function () { return $(this).val(); }).get()
-                    .filter(Boolean)
-                    .sort();
-
-                if (dates.length) $farmDate.val(dates[0]);
-            }
-
             function build() {
-                var n = parseInt($count.val(), 10);
-                if (isNaN(n) || n < 1) { $wrap.hide(); $rows.empty(); return; }
+                var total = parseInt($count.val(), 10);
+                if (isNaN(total) || total < 1) { $wrap.hide(); $rows.empty(); return; }
 
                 // Cap matches the app's tank picker, and keeps a mistyped 5000
                 // from locking the browser building rows.
-                n = Math.min(n, 50);
+                total = Math.min(total, 50);
+
+                // Only the tanks being ADDED. On create BASE is 0 and this is
+                // the whole set; on edit it is whatever the count was raised
+                // by. Lowering the count below what the farm already has adds
+                // nothing — the server refuses to destroy tanks from here, so
+                // offering rows for it would be a promise the save cannot keep.
+                var n = total - BASE;
+                if (n < 1) { $wrap.hide(); $rows.empty(); return; }
 
                 var existing = $rows.find('.tank-row').length;
 
@@ -384,7 +498,6 @@
 
             $rows.on('change input', '.tank-date', function () {
                 syncRow($(this).closest('.tank-row'));
-                syncFarmDate();
             });
 
             // Collect on submit.
@@ -399,8 +512,9 @@
                     });
                 });
 
+                // The farm's own stocking date is not sent: the controller
+                // derives it from the earliest tank on every save.
                 $meta.val(meta.length ? JSON.stringify(meta) : '');
-                syncFarmDate();
             });
 
             build();

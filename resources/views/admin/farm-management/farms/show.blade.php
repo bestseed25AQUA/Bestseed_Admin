@@ -20,7 +20,27 @@
             @php
                 $cards = [
                     ['Owner', $farm->farmer ? (trim($farm->farmer->first_name . ' ' . $farm->farmer->last_name) ?: 'Farmer #' . $farm->farmer->id) : 'Missing', 'fa-user', 'primary'],
-                    ['Tanks', $tanks->count() . ' (' . $tanks->where('status', 1)->count() . ' active)', 'fa-cubes', 'info'],
+                    // Every tank the farm has, DELETED ones included.
+                    //
+                    // It counted only the live ones, so a farm with five tanks
+                    // and one deleted read "5" while the list below it offered
+                    // a "Deleted tanks (1)" section — the page disagreed with
+                    // itself about how many tanks existed.
+                    //
+                    // The deleted count is named rather than left implied: at
+                    // "6 (5 active)" alone a reader assumes the sixth is
+                    // inactive, which is a different thing entirely.
+                    [
+                        'Tanks',
+                        ($tanks->count() + $deletedTanks->count())
+                            . ' (' . $tanks->where('status', 1)->count() . ' active'
+                            . ($deletedTanks->count()
+                                ? ', ' . $deletedTanks->count() . ' deleted'
+                                : '')
+                            . ')',
+                        'fa-cubes',
+                        'info',
+                    ],
                     ['Team', $team->where('is_partner', 0)->count() . ' managers, ' . $team->where('is_partner', 1)->count() . ' partners', 'fa-users', 'success'],
                     ['Feed Used', (float) $totalFeedUsed, 'fa-chart-line', 'warning'],
                 ];
@@ -190,7 +210,12 @@
                                                 </td>
                                                 <td>{{ $tank->meals ?? '-' }}</td>
                                                 <td>{{ $tank->store ?? '-' }}</td>
-                                                <td>{{ $tank->total_feed_used ?? 0 }}</td>
+                                                {{-- The crop CURRENTLY in the tank, not the
+                                                     tank's lifetime. `total_feed_used` on the row
+                                                     accumulates across batches, so a re-stocked
+                                                     tank showed the harvested crop's feed added to
+                                                     the new one's. Set in FarmManagementController::show. --}}
+                                                <td>{{ number_format($tank->current_batch_feed ?? 0, 2) }}</td>
                                                 <td>{{ $tank->stocking_date ? date('d-m-Y', strtotime($tank->stocking_date)) : '-' }}</td>
                                                 <td class="text-center text-nowrap">
                                                     @permission('farm-management.view')
@@ -301,28 +326,35 @@
                                                                             Stocking date <span class="text-danger">*</span>
                                                                         </label>
                                                                         <input type="date" name="stocking_date" required
-                                                                            class="form-control form-control-sm"
+                                                                            class="form-control form-control-sm crop-date"
                                                                             {{-- A crop cannot have been stocked
                                                                                  on a day that has not happened. --}}
                                                                             max="{{ now()->toDateString() }}"
                                                                             value="{{ now()->toDateString() }}">
                                                                     </div>
-                                                                    <div class="col-md-3 form-group mb-2">
-                                                                        <label class="small mb-1">Feed already used (kg)</label>
+
+                                                                    {{-- Hidden until the date is actually in the
+                                                                         past. It opened on today with this box
+                                                                         already showing, asking for "feed already
+                                                                         used" on a crop that starts in an hour —
+                                                                         a question with no possible answer. The
+                                                                         date decides whether it is asked at all. --}}
+                                                                    <div class="col-md-3 form-group mb-2 crop-feed-wrap"
+                                                                         style="display:none;">
+                                                                        <label class="small mb-1 crop-feed-label">Feed already used (kg)</label>
                                                                         <input type="number" step="0.01" min="0"
                                                                             name="feed_used_before"
-                                                                            class="form-control form-control-sm"
+                                                                            class="form-control form-control-sm crop-feed"
                                                                             placeholder="0">
                                                                     </div>
                                                                     <div class="col-md-6 form-group mb-2">
                                                                         <button type="submit" class="btn btn-sm btn-success">
                                                                             <i class="fas fa-power-off mr-1"></i> Start Crop
                                                                         </button>
-                                                                        <span class="small text-muted ml-2">
-                                                                            Only needed when the crop went in before
-                                                                            today. It is spread across the days that
-                                                                            have passed and does not come off the
-                                                                            farm's store.
+                                                                        <span class="small text-muted ml-2 crop-hint">
+                                                                            Pick the day the crop went in. Choose a
+                                                                            past day and you will also be asked what
+                                                                            it has already been fed.
                                                                         </span>
                                                                     </div>
                                                                 </div>
@@ -828,6 +860,84 @@
 
             filter.addEventListener('input', apply);
             select.addEventListener('change', apply);
+        })();
+    </script>
+
+    {{-- Start Crop: the stocking date decides whether prior feed is asked for.
+
+         Delegated from the document, because every inactive tank has its own
+         copy of this panel inside a collapsed row — binding per panel would
+         mean rebinding whenever one opens. --}}
+    <script>
+        (function () {
+            // Today in LOCAL time. toISOString() converts to UTC first, which
+            // rolls the date over for anyone east of GMT and makes "today"
+            // read as tomorrow.
+            function todayStr() {
+                var d = new Date();
+                return d.getFullYear() + '-'
+                    + String(d.getMonth() + 1).padStart(2, '0') + '-'
+                    + String(d.getDate()).padStart(2, '0');
+            }
+
+            // Whole days from the chosen date up to YESTERDAY — the span the
+            // server spreads the figure over. Today is excluded: the figure is
+            // feed already used, and today's meals have not happened yet.
+            function daysBefore(value) {
+                if (!value) return 0;
+                var days = Math.round(
+                    (new Date(todayStr() + 'T00:00:00') - new Date(value + 'T00:00:00')) / 86400000
+                );
+                return days > 0 ? days : 0;
+            }
+
+            function sync(input) {
+                var row   = input.closest('.row');
+                if (!row) return;
+
+                var wrap  = row.querySelector('.crop-feed-wrap');
+                var label = row.querySelector('.crop-feed-label');
+                var field = row.querySelector('.crop-feed');
+                var hint  = row.querySelector('.crop-hint');
+                if (!wrap) return;
+
+                var days = daysBefore(input.value);
+
+                if (days > 0) {
+                    if (label) {
+                        label.textContent = 'Feed used past ' + days
+                            + ' day' + (days === 1 ? '' : 's') + ' (kg)';
+                    }
+                    if (hint) {
+                        hint.textContent = 'Spread across the ' + days
+                            + ' day' + (days === 1 ? '' : 's') + ' that have passed. '
+                            + 'It does not come off the farm\u2019s store.';
+                    }
+                    wrap.style.display = '';
+                } else {
+                    // Moved back to today: there is no past to account for, so
+                    // the figure goes with it rather than being sent for a day
+                    // it cannot apply to.
+                    if (field) field.value = '';
+                    wrap.style.display = 'none';
+                    if (hint) {
+                        hint.textContent = 'Pick the day the crop went in. Choose a '
+                            + 'past day and you will also be asked what it has '
+                            + 'already been fed.';
+                    }
+                }
+            }
+
+            document.addEventListener('change', function (e) {
+                if (e.target && e.target.classList.contains('crop-date')) sync(e.target);
+            });
+            document.addEventListener('input', function (e) {
+                if (e.target && e.target.classList.contains('crop-date')) sync(e.target);
+            });
+
+            // The panels start on today, so nothing is shown until a date is
+            // actually changed — but run once in case a value was restored.
+            document.querySelectorAll('.crop-date').forEach(sync);
         })();
     </script>
 
