@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Support\FeedLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\FarmImage;
@@ -231,6 +232,23 @@ class FarmManagementController extends Controller
 
         $tanks = Tank::where('farm_id', $farm->id)->orderByDesc('id')->get();
 
+        // Today's meals and quantity per tank, the pair the app shows.
+        //
+        // The `tanks.meals`, `tanks.store` and `tanks.feed_quantity` columns
+        // are never written by a real feed entry — those land on the feed rows
+        // — so the table was reading three figures that stay at 0 for ever.
+        //
+        // One grouped query rather than two per tank.
+        $todayFeed = Feed::whereIn('tank_id', $tanks->pluck('id'))
+            ->whereDate('feed_date', now()->toDateString())
+            ->selectRaw('tank_id')
+            // One row IS one meal, so the count is the number of meals given.
+            ->selectRaw('COUNT(*) AS meals')
+            ->selectRaw('COALESCE(SUM(feed_quantity), 0) AS quantity')
+            ->groupBy('tank_id')
+            ->get()
+            ->keyBy('tank_id');
+
         // Deleted tanks, kept out of the main list but reachable.
         //
         // Deleting a tank hides it rather than destroying it, and its feed
@@ -309,8 +327,8 @@ class FarmManagementController extends Controller
             ->get();
 
         return view('admin.farm-management.farms.show', compact(
-            'farm', 'tanks', 'deletedTanks', 'team', 'totalFeedUsed', 'members', 'farmers',
-            'activity', 'activityWindow'
+            'farm', 'tanks', 'deletedTanks', 'todayFeed', 'team', 'totalFeedUsed',
+            'members', 'farmers', 'activity', 'activityWindow'
         ));
     }
 
@@ -773,7 +791,7 @@ class FarmManagementController extends Controller
             'new_tanks_meta'      => 'nullable|string',
             'store'          => 'nullable|numeric|min:0',
             'low_feed_limit' => 'nullable|numeric|min:0',
-            'feed_used_before' => 'nullable|numeric|min:0',
+            'feed_used_before' => FeedLimits::feedUsedBeforeRules(),
             'images'         => 'nullable|array|max:2',
             'images.*'       => 'image|mimes:jpg,jpeg,png,webp|max:5120',
         ];

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\FeedBackfillException;
 use App\Models\Farm;
 use App\Models\Feed;
 use App\Models\Tank;
@@ -155,8 +156,19 @@ class FeedBackfillService
             Log::error('Tank feed backfill failed', [
                 'farm_id' => $farm->id,
                 'tank_id' => $tankId,
+                'total'   => $totalUsed,
                 'error'   => $e->getMessage(),
             ]);
+
+            // Rethrown, not swallowed. The transaction above has already
+            // rolled every generated row back, so carrying on would report
+            // success for a tank left with no history and a total of zero —
+            // which is exactly how this went unnoticed.
+            throw new FeedBackfillException(
+                'The feed already used could not be recorded for this tank. '
+                . 'Check the figure and try again.',
+                previous: $e
+            );
         }
     }
 

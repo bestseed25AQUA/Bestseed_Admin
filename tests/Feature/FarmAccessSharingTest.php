@@ -14,14 +14,8 @@ use Tests\TestCase;
 /**
  * Who may hand a farm to somebody else.
  *
- * Owners and partners. A partner co-owns the farm and may bring people in; a
- * manager is staff and may not. Before this rule, ANYONE holding any
- * permission could pass it on, so a manager given nothing but view access
- * could appoint managers and partners of their own and quietly widen who
- * reached the farm.
- *
- * The app hides the two "Set Up Access" options for a manager. These assert the
- * part that actually enforces it.
+ * The owner, plus anyone given CREATE access — role does not decide it.
+ * Revoking needs create AND delete.
  */
 class FarmAccessSharingTest extends TestCase
 {
@@ -58,14 +52,21 @@ class FarmAccessSharingTest extends TestCase
         ]);
     }
 
-    /** Give someone every permission on a farm, in the named role. */
+    /**
+     * Put someone on a farm.
+     *
+     * [$abilities] overrides individual permissions. Everything is granted by
+     * default, because most of these tests are about the two that decide
+     * access sharing and the rest are noise.
+     */
     private function addMember(
         Farm $farm,
         Farmer $person,
         string $role,
-        ?Farmer $grantedBy = null
+        ?Farmer $grantedBy = null,
+        array $abilities = []
     ): FarmAccessMember {
-        return FarmAccessMember::create([
+        return FarmAccessMember::create(array_merge([
             'farm_id'            => $farm->id,
             'farmer_id'          => $person->id,
             'granted_by'         => $grantedBy?->id ?? $farm->farmer_id,
@@ -76,7 +77,7 @@ class FarmAccessSharingTest extends TestCase
             'total_feed_access'  => 1,
             'create_access'      => 1,
             'delete_access'      => 1,
-        ]);
+        ], $abilities));
     }
 
     // ── The rule itself ─────────────────────────────────────────────────────
@@ -86,28 +87,29 @@ class FarmAccessSharingTest extends TestCase
         $this->assertTrue(FarmPermission::owner()->canShareAccess());
     }
 
-    public function test_a_partner_may_share_but_a_manager_may_not(): void
+    /** Create access decides it, for either role. */
+    public function test_create_access_decides_who_may_share_not_the_role(): void
     {
-        $owner   = $this->makeFarmer();
-        $farm    = $this->makeFarm($owner);
-        $access  = app(FarmAccessService::class);
+        $owner  = $this->makeFarmer();
+        $farm   = $this->makeFarm($owner);
+        $access = app(FarmAccessService::class);
 
-        $partner = $this->makeFarmer();
-        $manager = $this->makeFarmer();
+        $managerWithCreate    = $this->makeFarmer();
+        $partnerWithoutCreate = $this->makeFarmer();
 
-        // Identical permissions. Only the role differs, which is the point:
-        // the rule is about standing, not about what they can do day to day.
-        $this->addMember($farm, $partner, 'partner');
-        $this->addMember($farm, $manager, 'manager');
+        $this->addMember($farm, $managerWithCreate, 'manager');
+        $this->addMember($farm, $partnerWithoutCreate, 'partner', null, [
+            'create_access' => 0,
+        ]);
 
         $this->assertTrue(
-            $access->permissionFor($partner->id, $farm)->canShareAccess(),
-            'A partner co-owns the farm and may bring people in.'
+            $access->permissionFor($managerWithCreate->id, $farm)->canShareAccess(),
+            'A manager given create access may bring people in.'
         );
 
         $this->assertFalse(
-            $access->permissionFor($manager->id, $farm)->canShareAccess(),
-            'A manager holding every permission still may not give access away.'
+            $access->permissionFor($partnerWithoutCreate->id, $farm)->canShareAccess(),
+            'Being a partner is not enough without create access.'
         );
     }
 
@@ -116,7 +118,7 @@ class FarmAccessSharingTest extends TestCase
         $this->assertFalse(FarmPermission::none()->canShareAccess());
     }
 
-    public function test_a_partner_holding_nothing_has_nothing_to_give(): void
+    public function test_a_member_holding_nothing_has_nothing_to_give(): void
     {
         $owner   = $this->makeFarmer();
         $farm    = $this->makeFarm($owner);
@@ -137,7 +139,7 @@ class FarmAccessSharingTest extends TestCase
 
         $this->assertFalse(
             app(FarmAccessService::class)->permissionFor($partner->id, $farm)->canShareAccess(),
-            'Being a partner is not enough — there has to be something to pass on.'
+            'No create access, nothing to pass on.'
         );
     }
 
@@ -197,7 +199,33 @@ class FarmAccessSharingTest extends TestCase
         ]);
     }
 
-    public function test_a_manager_is_refused_when_granting_access(): void
+    public function test_someone_without_create_access_is_refused_when_granting(): void
+    {
+        $owner  = $this->makeFarmer();
+        $farm   = $this->makeFarm($owner);
+        $helper = $this->makeFarmer();
+        $new    = $this->makeFarmer();
+
+        // Everything except create.
+        $this->addMember($farm, $helper, 'partner', null, ['create_access' => 0]);
+
+        Sanctum::actingAs($helper);
+
+        $this->postJson("/api/farmer/farm/{$farm->id}/members", $this->grantPayload($new))
+            ->assertStatus(403)
+            ->assertJsonPath(
+                'message',
+                'You need create access on this farm to give someone access.'
+            );
+
+        // And nothing was written on the way to being refused.
+        $this->assertDatabaseMissing('farm_access_members', [
+            'farm_id'   => $farm->id,
+            'farmer_id' => $new->id,
+        ]);
+    }
+
+    public function test_a_manager_with_create_access_may_grant(): void
     {
         $owner   = $this->makeFarmer();
         $farm    = $this->makeFarm($owner);
@@ -209,16 +237,12 @@ class FarmAccessSharingTest extends TestCase
         Sanctum::actingAs($manager);
 
         $this->postJson("/api/farmer/farm/{$farm->id}/members", $this->grantPayload($new))
-            ->assertStatus(403)
-            ->assertJsonPath(
-                'message',
-                'Only the farm owner or a partner can give access to this farm.'
-            );
+            ->assertStatus(201);
 
-        // And nothing was written on the way to being refused.
-        $this->assertDatabaseMissing('farm_access_members', [
-            'farm_id'   => $farm->id,
-            'farmer_id' => $new->id,
+        $this->assertDatabaseHas('farm_access_members', [
+            'farm_id'    => $farm->id,
+            'farmer_id'  => $new->id,
+            'granted_by' => $manager->id,
         ]);
     }
 
@@ -252,47 +276,50 @@ class FarmAccessSharingTest extends TestCase
         $this->assertNotNull($member->fresh()->revoked_at);
     }
 
-    public function test_a_manager_cannot_revoke_even_someone_they_admitted(): void
+    /** Revoking needs create AND delete; create alone is not enough. */
+    public function test_create_without_delete_cannot_revoke(): void
     {
-        $owner   = $this->makeFarmer();
-        $farm    = $this->makeFarm($owner);
-        $manager = $this->makeFarmer();
+        $owner  = $this->makeFarmer();
+        $farm   = $this->makeFarm($owner);
+        $helper = $this->makeFarmer();
 
-        $this->addMember($farm, $manager, 'manager');
+        $this->addMember($farm, $helper, 'manager', null, ['delete_access' => 0]);
 
-        // A row a manager granted before this rule existed. Taking access away
-        // is the same authority as giving it, so they are refused now.
-        $legacy = $this->addMember($farm, $this->makeFarmer(), 'manager', $manager);
+        $theirs = $this->addMember($farm, $this->makeFarmer(), 'manager', $helper);
 
-        Sanctum::actingAs($manager);
+        Sanctum::actingAs($helper);
 
-        $this->postJson("/api/farmer/members/{$legacy->id}/revoke")->assertStatus(403);
+        $this->postJson("/api/farmer/members/{$theirs->id}/revoke")->assertStatus(403);
 
         $this->assertNull(
-            $legacy->fresh()->revoked_at,
-            'A manager must not be able to remove people from the farm.'
+            $theirs->fresh()->revoked_at,
+            'Delete is what turns "may bring people in" into "may also remove them".'
         );
     }
 
-    public function test_a_partner_can_revoke_only_people_they_admitted(): void
+    /** Delete is held for the farm, not only for one's own appointees. */
+    public function test_someone_with_create_and_delete_can_revoke_anyone_but_themselves(): void
     {
-        $owner   = $this->makeFarmer();
-        $farm    = $this->makeFarm($owner);
-        $partner = $this->makeFarmer();
+        $owner  = $this->makeFarmer();
+        $farm   = $this->makeFarm($owner);
+        $helper = $this->makeFarmer();
 
-        $this->addMember($farm, $partner, 'partner');
-
-        $theirs    = $this->addMember($farm, $this->makeFarmer(), 'manager', $partner);
+        $self      = $this->addMember($farm, $helper, 'partner');
+        $theirs    = $this->addMember($farm, $this->makeFarmer(), 'manager', $helper);
         $theOwners = $this->addMember($farm, $this->makeFarmer(), 'manager');
 
-        Sanctum::actingAs($partner);
+        Sanctum::actingAs($helper);
 
         $this->postJson("/api/farmer/members/{$theirs->id}/revoke")->assertOk();
         $this->assertNotNull($theirs->fresh()->revoked_at);
 
-        // Nobody can lock out the person who let them in.
-        $this->postJson("/api/farmer/members/{$theOwners->id}/revoke")->assertStatus(403);
-        $this->assertNull($theOwners->fresh()->revoked_at);
+        $this->postJson("/api/farmer/members/{$theOwners->id}/revoke")->assertOk();
+        $this->assertNotNull($theOwners->fresh()->revoked_at);
+
+        // But not themselves, or a farm can be left with nobody able to
+        // manage access.
+        $this->postJson("/api/farmer/members/{$self->id}/revoke")->assertStatus(403);
+        $this->assertNull($self->fresh()->revoked_at);
     }
 
     // ── Reading the list is still open to everyone on the farm ──────────────

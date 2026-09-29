@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Support\FeedLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\Feed;
@@ -277,7 +278,7 @@ class FarmTankController extends Controller
                 // before_or_equal:today — a crop cannot have been stocked on a
                 // day that has not happened.
                 'stocking_date'    => ['required', 'date', 'before_or_equal:today'],
-                'feed_used_before' => ['nullable', 'numeric', 'min:0'],
+                'feed_used_before' => FeedLimits::feedUsedBeforeRules(),
             ], [
                 'stocking_date.required' => 'Choose the date this crop was stocked.',
                 'stocking_date.before_or_equal' => 'The stocking date cannot be in the future.',
@@ -550,8 +551,6 @@ class FarmTankController extends Controller
         return [
             'tank_name'     => 'required|string|max:255',
             'status'        => 'required|in:0,1',
-            'meals'         => 'nullable|numeric|min:0',
-            'store'         => 'nullable|numeric|min:0',
             'stocking_date' => 'nullable|date',
         ];
     }

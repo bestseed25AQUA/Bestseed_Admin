@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Farm;
 use App\Models\Tank;
+use App\Support\FeedLimits;
 use App\Models\TankBatch;
 use Carbon\Carbon;
 
@@ -72,6 +73,12 @@ class FarmTankEditService
 
             $used = (float) ($row['feed_used_before'] ?? 0);
             $used = $used > 0 ? $used : 0.0;
+
+            FeedLimits::assertFeedUsedBefore(
+                $used,
+                'existing_tanks_meta',
+                $tank->tank_name ?: "tank #{$tank->id}"
+            );
 
             $oldDate = $tank->stocking_date
                 ? Carbon::parse($tank->stocking_date)->toDateString()

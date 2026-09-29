@@ -163,15 +163,7 @@
                                                     <option value="0">Inactive</option>
                                                 </select>
                                             </div>
-                                            <div class="col-md-2 form-group">
-                                                <label>Meals / day</label>
-                                                <input type="number" name="meals" class="form-control" min="0">
-                                            </div>
-                                            <div class="col-md-2 form-group">
-                                                <label>Store</label>
-                                                <input type="number" step="0.01" name="store" class="form-control" min="0">
-                                            </div>
-                                            <div class="col-md-3 form-group">
+                                            <div class="col-md-4 form-group">
                                                 <label>Stocking Date</label>
                                                 <input type="date" name="stocking_date" class="form-control"
                                                     value="{{ $farm->stocking_date ? \Illuminate\Support\Carbon::parse($farm->stocking_date)->format('Y-m-d') : '' }}">
@@ -193,8 +185,9 @@
                                 <table class="table table-hover">
                                     <thead>
                                         <tr>
-                                            <th>ID</th><th>Tank</th><th>Status</th><th>Meals</th>
-                                            <th>Store</th><th>Feed Used</th><th>Stocking Date</th>
+                                            <th>ID</th><th>Tank</th><th>Status</th>
+                                            <th>Meals Today</th><th>Quantity Today</th>
+                                            <th>Feed Used</th><th>Stocking Date</th>
                                             <th class="text-center">Actions</th>
                                         </tr>
                                     </thead>
@@ -208,8 +201,12 @@
                                                         {{ $tank->status ? 'Active' : 'Inactive' }}
                                                     </span>
                                                 </td>
-                                                <td>{{ $tank->meals ?? '-' }}</td>
-                                                <td>{{ $tank->store ?? '-' }}</td>
+                                                @php $today = $todayFeed->get($tank->id); @endphp
+                                                <td>{{ $today->meals ?? 0 }}</td>
+                                                <td>
+                                                    {{ rtrim(rtrim(number_format((float) ($today->quantity ?? 0), 2, '.', ''), '0'), '.') }}
+                                                    <span class="text-muted small">kg</span>
+                                                </td>
                                                 {{-- The crop CURRENTLY in the tank, not the
                                                      tank's lifetime. `total_feed_used` on the row
                                                      accumulates across batches, so a re-stocked
@@ -283,17 +280,7 @@
                                                                         <option value="0" @selected(!$tank->status)>Inactive</option>
                                                                     </select>
                                                                 </div>
-                                                                <div class="col-md-2 form-group mb-2">
-                                                                    <label class="small mb-1">Meals / day</label>
-                                                                    <input type="number" name="meals" class="form-control form-control-sm"
-                                                                        min="0" value="{{ $tank->meals }}">
-                                                                </div>
-                                                                <div class="col-md-2 form-group mb-2">
-                                                                    <label class="small mb-1">Store</label>
-                                                                    <input type="number" step="0.01" name="store" class="form-control form-control-sm"
-                                                                        min="0" value="{{ $tank->store }}">
-                                                                </div>
-                                                                <div class="col-md-3 form-group mb-2">
+                                                                <div class="col-md-4 form-group mb-2">
                                                                     <label class="small mb-1">Stocking Date</label>
                                                                     <input type="date" name="stocking_date" class="form-control form-control-sm"
                                                                         value="{{ $tank->stocking_date ? \Illuminate\Support\Carbon::parse($tank->stocking_date)->format('Y-m-d') : '' }}">
