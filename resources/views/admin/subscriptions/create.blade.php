@@ -64,23 +64,32 @@
                             <h5 class="mb-3">2. Pick the package they paid for</h5>
 
                             <div class="row">
-                                @foreach ($plans as $key => $plan)
+                                {{-- Models from the catalogue now, not a config
+                                     array — so `$plan->label`, never
+                                     `$plan['label']`. --}}
+                                @foreach ($plans as $plan)
                                     <div class="col-md-6 mb-3">
                                         <label class="w-100 mb-0" style="cursor: pointer;">
-                                            <input type="radio" name="plan_key" value="{{ $key }}"
+                                            <input type="radio" name="plan_key" value="{{ $plan->key }}"
                                                    class="plan-radio"
-                                                   {{ old('plan_key') === $key ? 'checked' : '' }}
+                                                   data-months="{{ $plan->months }}"
+                                                   {{ old('plan_key') === $plan->key ? 'checked' : '' }}
                                                    style="position:absolute; opacity:0;">
                                             <div class="card plan-card h-100">
                                                 <div class="card-body d-flex justify-content-between align-items-center">
                                                     <div>
-                                                        <h6 class="mb-1">{{ $plan['label'] }}</h6>
-                                                        <small class="text-muted">
-                                                            {{ $plan['months'] }} month{{ $plan['months'] === 1 ? '' : 's' }}
+                                                        <h6 class="mb-1">{{ $plan->label }}</h6>
+                                                        <small class="text-muted d-block">
+                                                            {{ $plan->months }} month{{ $plan->months === 1 ? '' : 's' }}
                                                         </small>
+                                                        {{-- The number the farmer is buying. --}}
+                                                        <span class="badge bg-info">
+                                                            {{ $plan->farm_limit }}
+                                                            {{ Str::plural('farm', $plan->farm_limit) }}
+                                                        </span>
                                                     </div>
                                                     <h4 class="mb-0 text-primary">
-                                                        {{ $currency }}{{ number_format($plan['amount'], 0) }}
+                                                        {{ $currency }}{{ number_format((float) $plan->amount, 0) }}
                                                     </h4>
                                                 </div>
                                             </div>

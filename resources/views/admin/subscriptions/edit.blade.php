@@ -44,10 +44,11 @@
                             <div class="form-group">
                                 <label>Package</label>
                                 <select name="plan_key" class="form-control" required>
-                                    @foreach ($plans as $key => $plan)
-                                        <option value="{{ $key }}"
-                                            {{ old('plan_key', $subscription->plan_key) === $key ? 'selected' : '' }}>
-                                            {{ $plan['label'] }} — {{ $currency }}{{ number_format($plan['amount'], 0) }}
+                                    {{-- Models from the catalogue, not a config array. --}}
+                                    @foreach ($plans as $plan)
+                                        <option value="{{ $plan->key }}"
+                                            {{ old('plan_key', $subscription->plan_key) === $plan->key ? 'selected' : '' }}>
+                                            {{ $plan->summary }}
                                         </option>
                                     @endforeach
                                 </select>

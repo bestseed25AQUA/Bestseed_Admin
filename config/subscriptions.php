@@ -103,4 +103,19 @@ return [
     */
     'expiring_soon_days' => 7,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin renewal notice
+    |--------------------------------------------------------------------------
+    |
+    | How many days ahead the admin panel lists farmers to ring about renewing.
+    |
+    | Deliberately FLAT, unlike the per-package warning above. That window
+    | scales with the term — a one-month package warns at 7 days — so it would
+    | never surface a monthly customer in a "next 15 days" list. This is the
+    | horizon admin works to, whatever the farmer bought.
+    |
+    */
+    'admin_notice_days' => 15,
+
 ];

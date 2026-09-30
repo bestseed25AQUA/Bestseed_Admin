@@ -17,6 +17,61 @@
         {{-- The admin half of "notify us too". These are computed from the
              dates on every page load, so they stay correct even if the nightly
              reminder command has not run. --}}
+        {{-- Renewals due in the next {{ $noticeDays }} days.
+
+             Shown above everything, on every filter, because it is the one
+             thing on this screen that needs doing TODAY. Deliberately a flat
+             horizon rather than each package's own warning window: a one-month
+             package warns at 7 days, so a monthly customer would never appear
+             in a "next 15 days" list if this followed the package. --}}
+        @if ($dueSoon->isNotEmpty())
+            <div class="alert alert-warning">
+                <h5 class="mb-2">
+                    <i class="fas fa-bell mr-1"></i>
+                    {{ $dueSoon->count() }} {{ Str::plural('subscription', $dueSoon->count()) }}
+                    expiring within {{ $noticeDays }} days
+                </h5>
+
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 bg-white">
+                        <thead>
+                            <tr>
+                                <th>Farmer</th><th>Package</th><th>Farms</th>
+                                <th>Expires</th><th>Days left</th><th class="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($dueSoon as $due)
+                                <tr>
+                                    <td>
+                                        {{ trim(($due->farmer->first_name ?? '') . ' ' . ($due->farmer->last_name ?? '')) ?: 'Farmer #' . $due->farmer_id }}
+                                        <div class="small text-muted">{{ $due->farmer->mobile ?? '' }}</div>
+                                    </td>
+                                    <td>{{ $due->plan_label }}</td>
+                                    <td>{{ $due->farm_limit }}</td>
+                                    <td>{{ $due->expires_at->format('d M Y') }}</td>
+                                    <td>
+                                        {{-- 0 is today, not "expired": the term
+                                             runs to the end of its last day. --}}
+                                        <span class="badge {{ $due->days_remaining <= 3 ? 'bg-danger' : 'bg-warning text-dark' }}">
+                                            {{ $due->days_remaining }}
+                                            {{ Str::plural('day', $due->days_remaining) }}
+                                        </span>
+                                    </td>
+                                    <td class="text-right">
+                                        <a href="{{ route('subscriptions.renew.form', $due) }}"
+                                           class="btn btn-sm btn-primary">
+                                            <i class="fas fa-rotate mr-1"></i> Renew
+                                        </a>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @endif
+
         <div class="row mb-3">
             <div class="col-md-4">
                 <a href="{{ route('subscriptions.index', ['state' => 'active']) }}" class="text-decoration-none">
@@ -144,6 +199,14 @@
                                             <i class="fas fa-eye"></i>
                                         </a>
                                         @permission('subscriptions.update')
+                                            {{-- Renew records a NEW term; Edit corrects
+                                                 the existing one. Two different things, so
+                                                 two buttons — correcting a typo must not
+                                                 look like taking another payment. --}}
+                                            <a href="{{ route('subscriptions.renew.form', $subscription) }}"
+                                               class="btn btn-sm btn-outline-success" title="Renew">
+                                                <i class="fas fa-rotate"></i>
+                                            </a>
                                             <a href="{{ route('subscriptions.edit', $subscription) }}"
                                                class="btn btn-sm btn-outline-primary" title="Edit">
                                                 <i class="fas fa-edit"></i>

@@ -16,7 +16,12 @@ class FarmSubscription extends Model
 {
     protected $fillable = [
         'farmer_id',
+        'plan_id',
         'plan_key',
+        // Snapshot of what this sale granted — see the migration. Never read
+        // through to the plan, or editing a package would retroactively change
+        // what somebody already bought.
+        'farm_limit',
         'plan_label',
         'amount',
         'months',
@@ -33,11 +38,18 @@ class FarmSubscription extends Model
         'cancelled_at' => 'datetime',
         'amount'       => 'decimal:2',
         'months'       => 'integer',
+        'farm_limit'   => 'integer',
     ];
 
     public function farmer()
     {
         return $this->belongsTo(Farmer::class, 'farmer_id');
+    }
+
+    /** The package this was sold from. Null on rows predating the catalogue. */
+    public function plan()
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
     }
 
     public function reminders()
@@ -97,13 +109,14 @@ class FarmSubscription extends Model
         $case     = 'CASE `plan_key`';
         $bindings = [];
 
-        foreach ((array) config('subscriptions.plans', []) as $key => $plan) {
-            $reminders = array_map('intval', (array) ($plan['reminders'] ?? []));
-            rsort($reminders);
-
+        // From the catalogue admin writes. It read config before, so a package
+        // created in the panel had no case arm and fell to the 7-day fallback —
+        // a 12-month package would have gone amber a week before expiry instead
+        // of the month its own reminders asked for.
+        foreach (SubscriptionPlan::all() as $plan) {
             $case .= ' WHEN ? THEN ?';
-            $bindings[] = $key;
-            $bindings[] = $reminders ? $reminders[0] : $fallback;
+            $bindings[] = $plan->key;
+            $bindings[] = $plan->warnFromDays();
         }
 
         $case .= ' ELSE ? END';
@@ -216,15 +229,24 @@ class FarmSubscription extends Model
     /**
      * The reminder thresholds this plan should fire, largest first.
      *
-     * Falls back to the shortest sensible set when a row points at a plan key
-     * that has since been removed from the config, so an orphaned row still
-     * warns rather than going quiet.
+     * Read from the package in the catalogue, which admin writes. Falls back to
+     * a sensible set when a row points at a package that has since been removed
+     * entirely, so an orphaned row still warns rather than going quiet.
      */
     public function reminderDays(): array
     {
-        $days = config("subscriptions.plans.{$this->plan_key}.reminders", [7, 3, 2, 1]);
+        $plan = $this->relationLoaded('plan')
+            ? $this->plan
+            : SubscriptionPlan::where('key', $this->plan_key)->first();
 
-        $days = array_map('intval', (array) $days);
+        if ($plan) {
+            return $plan->reminderDays();
+        }
+
+        $days = array_map('intval', (array) config(
+            "subscriptions.plans.{$this->plan_key}.reminders",
+            [7, 3, 2, 1]
+        ));
         rsort($days);
 
         return $days;

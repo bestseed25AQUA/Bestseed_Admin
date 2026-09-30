@@ -175,6 +175,21 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     // `lookup` sits ABOVE the resource routes: registered after them,
     // `admin/subscriptions/lookup` would be captured by `{subscription}` and
     // Laravel would try to bind "lookup" as a model id.
+    // Packages: how many farms, for how many months, at what price. Declared
+    // BEFORE the subscriptions resource so neither captures the other's paths.
+    Route::post('admin/subscription-plans/{subscription_plan}/toggle', [\App\Http\Controllers\Admin\SubscriptionPlanController::class, 'toggle'])
+        ->name('subscription-plans.toggle');
+    Route::resource('admin/subscription-plans', \App\Http\Controllers\Admin\SubscriptionPlanController::class)
+        ->parameters(['subscription-plans' => 'subscription_plan'])
+        ->except(['show', 'destroy']);
+
+    // Renewing an existing term. Its own route rather than an edit, because the
+    // dates are chosen fresh and the old row is left untouched as history.
+    Route::get('admin/subscriptions/{subscription}/renew', [\App\Http\Controllers\Admin\SubscriptionController::class, 'renewForm'])
+        ->name('subscriptions.renew.form');
+    Route::post('admin/subscriptions/{subscription}/renew', [\App\Http\Controllers\Admin\SubscriptionController::class, 'renew'])
+        ->name('subscriptions.renew');
+
     Route::get('admin/subscriptions/lookup', [\App\Http\Controllers\Admin\SubscriptionController::class, 'lookupFarmer'])
         ->name('subscriptions.lookup');
     Route::post('admin/subscriptions/{subscription}/cancel', [\App\Http\Controllers\Admin\SubscriptionController::class, 'cancel'])

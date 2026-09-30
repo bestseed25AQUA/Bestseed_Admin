@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\Farmer;
 use App\Models\FarmSubscription;
+use App\Models\SubscriptionPlan;
+use Carbon\Carbon;
 use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -73,11 +75,29 @@ class SubscriptionController extends Controller
             ->paginate(25)
             ->withQueryString();
 
+        // The 15-day notice.
+        //
+        // Separate from the amber rows, which use each package's OWN window —
+        // a one-month package warns at 7 days, so it would never appear in a
+        // list of "expiring within 15" if that window were used here. This is a
+        // flat, deliberate horizon: everyone admin should be ringing now,
+        // regardless of what they bought.
+        //
+        // Loaded whatever the filter, so filtering to "expired" does not hide
+        // the people who are about to become expired.
+        $noticeDays = (int) config('subscriptions.admin_notice_days', 15);
+
         return view('admin.subscriptions.index', [
             'subscriptions' => $subscriptions,
             'filter'        => $filter,
             'search'        => $search,
             'counts'        => $this->counts(),
+            'noticeDays'    => $noticeDays,
+            'dueSoon'       => FarmSubscription::with('farmer')
+                ->expiringWithin($noticeDays)
+                ->orderBy('expires_at')
+                ->limit(50)
+                ->get(),
         ]);
     }
 
@@ -100,7 +120,7 @@ class SubscriptionController extends Controller
     public function create(Request $request)
     {
         return view('admin.subscriptions.create', [
-            'plans'    => config('subscriptions.plans', []),
+            'plans'    => SubscriptionPlan::active()->ordered()->get(),
             'currency' => config('subscriptions.currency_symbol', '₹'),
             'farmer'   => $request->filled('farmer_id')
                 ? Farmer::find($request->input('farmer_id'))
@@ -158,11 +178,14 @@ class SubscriptionController extends Controller
     {
         $validated = $request->validate([
             'farmer_id' => ['required', 'integer', 'exists:farmers,id'],
-            'plan_key'  => ['required', Rule::in(array_keys(config('subscriptions.plans', [])))],
-            // Optional. Left blank the service starts it today, or the day
-            // after an existing term ends so a renewal does not overlap.
-            'starts_at' => ['nullable', 'date'],
-            'notes'     => ['nullable', 'string', 'max:1000'],
+            'plan_key'  => ['required', Rule::exists('subscription_plans', 'key')->where('is_active', true)],
+            // Both dates are the admin's to choose. Left blank, the service
+            // starts it today — or the day after an existing term ends, so
+            // recording a renewal early does not waste days already paid for —
+            // and ends it by the package's months.
+            'starts_at'  => ['nullable', 'date'],
+            'expires_at' => ['nullable', 'date'],
+            'notes'      => ['nullable', 'string', 'max:1000'],
         ], [
             'farmer_id.required' => 'Find the farmer by mobile number first.',
             'plan_key.required'  => 'Choose the package the farmer paid for.',
@@ -175,6 +198,7 @@ class SubscriptionController extends Controller
                 startsAt:  $validated['starts_at'] ?? null,
                 notes:     $validated['notes'] ?? null,
                 createdBy: auth()->id(),
+                expiresAt: $validated['expires_at'] ?? null,
             );
         } catch (\Throwable $e) {
             Log::error('Subscription could not be recorded', [
@@ -191,6 +215,72 @@ class SubscriptionController extends Controller
             ->with('success', "{$subscription->plan_label} recorded. Active until {$subscription->expires_at->format('d M Y')}.");
     }
 
+    /**
+     * The renew form for one subscription.
+     *
+     * A NEW term rather than an edit of the old one: the farmer paid twice, and
+     * the history should say so. The old row stays exactly as sold.
+     */
+    public function renewForm(FarmSubscription $subscription)
+    {
+        $subscription->load('farmer');
+
+        // Prefilled, not imposed. Starts the day after the current term ends,
+        // so nothing already paid for is thrown away, and runs the package's
+        // months from there — both dates remain the admin's to change.
+        $start = $subscription->expires_at->isFuture()
+            ? $subscription->expires_at->copy()->addDay()
+            : Carbon::today();
+
+        $plan = SubscriptionPlan::where('key', $subscription->plan_key)->first();
+        $months = $plan?->months ?? $subscription->months ?? 1;
+
+        return view('admin.subscriptions.renew', [
+            'subscription' => $subscription,
+            'plans'        => SubscriptionPlan::active()->ordered()->get(),
+            'currency'     => config('subscriptions.currency_symbol', '₹'),
+            'startsAt'     => $start->toDateString(),
+            'expiresAt'    => $start->copy()->addMonths($months)->subDay()->toDateString(),
+        ]);
+    }
+
+    public function renew(Request $request, FarmSubscription $subscription)
+    {
+        $validated = $request->validate([
+            'plan_key'   => ['required', Rule::exists('subscription_plans', 'key')->where('is_active', true)],
+            'starts_at'  => ['required', 'date'],
+            'expires_at' => ['required', 'date'],
+            'notes'      => ['nullable', 'string', 'max:1000'],
+        ], [
+            'starts_at.required'  => 'Choose the date the new term starts.',
+            'expires_at.required' => 'Choose the date the new term ends.',
+        ]);
+
+        try {
+            $renewed = $this->subscriptions->subscribe(
+                farmerId:  (int) $subscription->farmer_id,
+                planKey:   $validated['plan_key'],
+                startsAt:  $validated['starts_at'],
+                notes:     $validated['notes'] ?? null,
+                createdBy: auth()->id(),
+                expiresAt: $validated['expires_at'],
+            );
+        } catch (\Throwable $e) {
+            Log::error('Subscription could not be renewed', [
+                'subscription_id' => $subscription->id,
+                'error'           => $e->getMessage(),
+            ]);
+
+            return back()->withInput()->with('error', 'The renewal could not be saved. Please try again.');
+        }
+
+        return redirect()
+            ->route('subscriptions.show', $renewed)
+            ->with('success', "{$renewed->plan_label} recorded — {$renewed->farm_limit} "
+                . ($renewed->farm_limit === 1 ? 'farm' : 'farms')
+                . " until {$renewed->expires_at->format('d M Y')}.");
+    }
+
     public function show(FarmSubscription $subscription)
     {
         $subscription->load('farmer', 'reminders');
@@ -205,7 +295,7 @@ class SubscriptionController extends Controller
     {
         return view('admin.subscriptions.edit', [
             'subscription' => $subscription->load('farmer'),
-            'plans'        => config('subscriptions.plans', []),
+            'plans'        => SubscriptionPlan::active()->ordered()->get(),
             'currency'     => config('subscriptions.currency_symbol', '₹'),
         ]);
     }
@@ -220,7 +310,7 @@ class SubscriptionController extends Controller
     public function update(Request $request, FarmSubscription $subscription)
     {
         $validated = $request->validate([
-            'plan_key'   => ['required', Rule::in(array_keys(config('subscriptions.plans', [])))],
+            'plan_key'   => ['required', Rule::exists('subscription_plans', 'key')],
             'starts_at'  => ['required', 'date'],
             'expires_at' => ['required', 'date', 'after_or_equal:starts_at'],
             'notes'      => ['nullable', 'string', 'max:1000'],
