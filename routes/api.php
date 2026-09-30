@@ -73,16 +73,16 @@ Route::middleware(['auth:sanctum', 'role:farmer,hatchery'])->group(function () {
 //manager api beg
 Route::prefix('manager')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
     // add manager
-    Route::post('/create', [FarmController::class, 'createManager']);
+    Route::post('/create', [FarmController::class, 'createManager'])->middleware('farm.unlocked');
     //mangers list
     Route::get('/managers', [FarmController::class, 'getManagers']);
 
     //remove access of manager
 
-    Route::post('/remove-access', [FarmController::class, 'removeManagerAccess']);
+    Route::post('/remove-access', [FarmController::class, 'removeManagerAccess'])->middleware('farm.unlocked:member');
 
     //delete manager
-    Route::post('/delete', [FarmController::class, 'deleteManager']);
+    Route::post('/delete', [FarmController::class, 'deleteManager'])->middleware('farm.unlocked:member');
 
 
 });
@@ -91,16 +91,16 @@ Route::prefix('manager')->middleware(['auth:sanctum', 'farmer.active'])->group(f
 //create partner beg
 Route::prefix('partner')->middleware(['auth:sanctum', 'farmer.active'])->group(function () {
     // add manager
-    Route::post('/create', [FarmController::class, 'createPartner']);
+    Route::post('/create', [FarmController::class, 'createPartner'])->middleware('farm.unlocked');
     //mangers list
     Route::get('/parteners', [FarmController::class, 'getPartners']);
 
     //remove access of partner
 
-    Route::post('/remove-access', [FarmController::class, 'removePartnerAccess']);
+    Route::post('/remove-access', [FarmController::class, 'removePartnerAccess'])->middleware('farm.unlocked:member');
 
     //delete partner
-    Route::post('/delete', [FarmController::class, 'deletePartner']);
+    Route::post('/delete', [FarmController::class, 'deletePartner'])->middleware('farm.unlocked:member');
 
 
 });
@@ -139,6 +139,7 @@ Route::prefix('farmer')->group(function () {
     Route::get('/seed_price_banner', [BannerController::class, 'seedPriceBanner']);
     Route::get('/spot_hatcheries_icon', [BannerController::class, 'spotHatcheriesIcon']);
     Route::get('/farm_management_icon', [BannerController::class, 'farmManagementIcon']);
+    Route::get('/farm_management_banner', [BannerController::class, 'farmManagementBanner']);
     Route::get('/home_section1_bg', [BannerController::class, 'homeSection1Background']);
     Route::get('/home-news', [NewsAdsController::class, 'homeNews']);
     Route::get('/news', [NewsAdsController::class, 'getNewsByType']);

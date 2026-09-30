@@ -28,7 +28,7 @@
             <div class="alert alert-warning">
                 <h5 class="mb-2">
                     <i class="fas fa-bell mr-1"></i>
-                    {{ $dueSoon->count() }} {{ Str::plural('subscription', $dueSoon->count()) }}
+                    {{ $dueSoon->total() }} {{ Str::plural('subscription', $dueSoon->total()) }}
                     expiring within {{ $noticeDays }} days
                 </h5>
 
@@ -53,7 +53,7 @@
                                     <td>
                                         {{-- 0 is today, not "expired": the term
                                              runs to the end of its last day. --}}
-                                        <span class="badge {{ $due->days_remaining <= 3 ? 'bg-danger' : 'bg-warning text-dark' }}">
+                                        <span class="badge {{ $due->days_remaining <= 3 ? 'bg-danger text-white' : 'bg-warning text-dark' }}">
                                             {{ $due->days_remaining }}
                                             {{ Str::plural('day', $due->days_remaining) }}
                                         </span>
@@ -61,7 +61,7 @@
                                     <td class="text-right">
                                         <a href="{{ route('subscriptions.renew.form', $due) }}"
                                            class="btn btn-sm btn-primary">
-                                            <i class="fas fa-rotate mr-1"></i> Renew
+                                            <i class="fas fa-redo mr-1"></i> Renew
                                         </a>
                                     </td>
                                 </tr>
@@ -69,12 +69,24 @@
                         </tbody>
                     </table>
                 </div>
+
+                @if ($dueSoon->hasPages())
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mt-2">
+                        <small class="text-muted">
+                            Showing {{ $dueSoon->firstItem() }}–{{ $dueSoon->lastItem() }}
+                            of {{ $dueSoon->total() }}, soonest first
+                        </small>
+                        <div class="ml-auto">
+                            {{ $dueSoon->links('pagination::bootstrap-4') }}
+                        </div>
+                    </div>
+                @endif
             </div>
         @endif
 
         <div class="row mb-3">
             <div class="col-md-4">
-                <a href="{{ route('subscriptions.index', ['state' => 'active']) }}" class="text-decoration-none">
+                <a href="{{ route('subscriptions.index', ['state' => 'active']) }}" class="stat-card-link">
                     <div class="card border-left-success">
                         <div class="card-body py-3">
                             <div class="d-flex justify-content-between align-items-center">
@@ -86,7 +98,7 @@
                 </a>
             </div>
             <div class="col-md-4">
-                <a href="{{ route('subscriptions.index', ['state' => 'expiring']) }}" class="text-decoration-none">
+                <a href="{{ route('subscriptions.index', ['state' => 'expiring']) }}" class="stat-card-link">
                     <div class="card {{ $counts['expiring'] > 0 ? 'bg-warning text-dark' : '' }}">
                         <div class="card-body py-3">
                             {{-- Not "within N days": the window follows the
@@ -101,7 +113,7 @@
                 </a>
             </div>
             <div class="col-md-4">
-                <a href="{{ route('subscriptions.index', ['state' => 'expired']) }}" class="text-decoration-none">
+                <a href="{{ route('subscriptions.index', ['state' => 'expired']) }}" class="stat-card-link">
                     <div class="card {{ $counts['expired'] > 0 ? 'bg-danger text-white' : '' }}">
                         <div class="card-body py-3">
                             <div class="d-flex justify-content-between align-items-center">
@@ -118,7 +130,7 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h4 class="card-title mb-0">
-                        Subscriptions <span class="badge bg-primary ml-2">{{ $subscriptions->total() }}</span>
+                        Subscriptions <span class="badge bg-primary ml-2" id="subCount">{{ $subscriptions->total() }}</span>
                     </h4>
                     @permission('subscriptions.create')
                         <a href="{{ route('subscriptions.create') }}" class="btn btn-primary">
@@ -127,9 +139,9 @@
                     @endpermission
                 </div>
 
-                <form method="GET" class="form-inline mb-3">
+                <form method="GET" class="form-inline mb-3" id="subFilters" data-url="{{ route('subscriptions.index') }}">
                     <label class="mr-2 mb-0">Show</label>
-                    <select name="state" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
+                    <select name="state" class="form-control form-control-sm mr-2">
                         <option value="all" {{ $filter === 'all' ? 'selected' : '' }}>Everything</option>
                         <option value="active" {{ $filter === 'active' ? 'selected' : '' }}>Active</option>
                         <option value="expiring" {{ $filter === 'expiring' ? 'selected' : '' }}>Expiring soon</option>
@@ -139,147 +151,123 @@
                     <input type="text" name="q" value="{{ $search }}" class="form-control form-control-sm mr-2"
                            placeholder="Name or mobile">
                     <button class="btn btn-sm btn-outline-primary mr-2" type="submit">Search</button>
-                    @if ($filter !== 'all' || $search !== '')
-                        <a href="{{ route('subscriptions.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
-                    @endif
+                    <label class="mr-2 mb-0">Per page</label>
+                    <select name="per_page" class="form-control form-control-sm mr-2">
+                        @foreach ($perPageOptions as $option)
+                            <option value="{{ $option }}" {{ $perPage === $option ? 'selected' : '' }}>{{ $option }}</option>
+                        @endforeach
+                    </select>
+                    <a href="{{ route('subscriptions.index') }}" id="subClear"
+                       class="btn btn-sm btn-outline-secondary {{ $filter === 'all' && $search === '' && $perPage === 25 ? 'd-none' : '' }}">Clear</a>
                 </form>
 
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>Farmer</th>
-                                <th>Mobile</th>
-                                <th>Package</th>
-                                <th>Amount</th>
-                                <th>Starts</th>
-                                <th>Ends</th>
-                                <th>Status</th>
-                                <th class="text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($subscriptions as $subscription)
-                                {{-- Red for expired, amber for close to it. The class
-                                     comes from the model so the list, the API and the
-                                     counts above can never disagree about a row. --}}
-                                <tr class="{{ $subscription->row_class }}">
-                                    <td>
-                                        {{ trim(($subscription->farmer->first_name ?? '') . ' ' . ($subscription->farmer->last_name ?? '')) ?: 'Farmer #' . $subscription->farmer_id }}
-                                    </td>
-                                    <td>{{ $subscription->farmer->mobile ?? '—' }}</td>
-                                    <td>{{ $subscription->plan_label }}</td>
-                                    <td>{{ config('subscriptions.currency_symbol', '₹') }}{{ number_format($subscription->amount, 0) }}</td>
-                                    <td>{{ $subscription->starts_at?->format('d M Y') ?? '—' }}</td>
-                                    <td>{{ $subscription->expires_at?->format('d M Y') ?? '—' }}</td>
-                                    <td>
-                                        @switch($subscription->state)
-                                            @case('expired')
-                                                <span class="badge badge-danger">Expired</span>
-                                                @break
-                                            @case('expiring')
-                                                <span class="badge badge-warning">
-                                                    {{ $subscription->days_remaining === 0
-                                                        ? 'Ends today'
-                                                        : $subscription->days_remaining . ' day' . ($subscription->days_remaining === 1 ? '' : 's') . ' left' }}
-                                                </span>
-                                                @break
-                                            @case('cancelled')
-                                                <span class="badge badge-secondary">Cancelled</span>
-                                                @break
-                                            @default
-                                                <span class="badge badge-success">
-                                                    Active · {{ $subscription->days_remaining }} days left
-                                                </span>
-                                        @endswitch
-                                    </td>
-                                    <td class="text-right text-nowrap">
-                                        <a href="{{ route('subscriptions.show', $subscription) }}"
-                                           class="btn btn-sm btn-outline-info" title="View">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                        @permission('subscriptions.update')
-                                            {{-- Renew records a NEW term; Edit corrects
-                                                 the existing one. Two different things, so
-                                                 two buttons — correcting a typo must not
-                                                 look like taking another payment. --}}
-                                            <a href="{{ route('subscriptions.renew.form', $subscription) }}"
-                                               class="btn btn-sm btn-outline-success" title="Renew">
-                                                <i class="fas fa-rotate"></i>
-                                            </a>
-                                            <a href="{{ route('subscriptions.edit', $subscription) }}"
-                                               class="btn btn-sm btn-outline-primary" title="Edit">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                            @unless ($subscription->is_cancelled)
-                                                <form method="POST" action="{{ route('subscriptions.cancel', $subscription) }}"
-                                                      class="d-inline js-confirm"
-                                                      data-message="Cancel this subscription? The farmer will not be able to add more farms.">
-                                                    @csrf
-                                                    <button type="submit" class="btn btn-sm btn-outline-warning" title="Cancel">
-                                                        <i class="fas fa-ban"></i>
-                                                    </button>
-                                                </form>
-                                            @endunless
-                                        @endpermission
-                                        @permission('subscriptions.delete')
-                                            <form method="POST" action="{{ route('subscriptions.destroy', $subscription) }}"
-                                                  class="d-inline js-confirm"
-                                                  data-message="Delete this record permanently? Cancel it instead if the farmer really did subscribe.">
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </form>
-                                        @endpermission
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">
-                                        No subscriptions
-                                        @if ($filter !== 'all' || $search !== '')
-                                            match this filter.
-                                        @else
-                                            recorded yet.
-                                        @endif
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
+                <div id="subList">
+                    @include('admin.subscriptions.partials.list')
                 </div>
-
-                {{-- Bootstrap 4 explicitly. Laravel 12 defaults the paginator
-                     to Tailwind, which renders as unstyled stacked links in
-                     this panel. Named here rather than switched globally in a
-                     service provider, because this is the only paginated view
-                     in the admin and a global change would be a surprise
-                     waiting for whoever adds the next one. --}}
-                {{ $subscriptions->links('pagination::bootstrap-4') }}
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            document.querySelectorAll('form.js-confirm').forEach(function (form) {
-                form.addEventListener('submit', function (event) {
-                    event.preventDefault();
-                    Swal.fire({
-                        title: 'Are you sure?',
-                        text: form.dataset.message || '',
-                        icon: 'warning',
-                        showCancelButton: true,
-                        confirmButtonColor: '#d33',
-                        confirmButtonText: 'Yes, continue'
-                    }).then(function (result) {
-                        if (result.isConfirmed) {
-                            form.submit();
-                        }
-                    });
+            // Delegated, because the rows are replaced as the admin types.
+            document.addEventListener('submit', function (event) {
+                var form = event.target.closest('form.js-confirm');
+                if (!form) return;
+
+                event.preventDefault();
+                Swal.fire({
+                    title: form.dataset.title || 'Are you sure?',
+                    text: form.dataset.message || '',
+                    icon: 'warning',
+                    width: 560,
+                    showCancelButton: true,
+                    reverseButtons: true,
+                    buttonsStyling: false,
+                    customClass: {
+                        popup: 'swal-tidy',
+                        title: 'swal-tidy-title',
+                        confirmButton: 'btn btn-danger px-4',
+                        cancelButton: 'btn btn-light border px-4'
+                    },
+                    confirmButtonText: form.dataset.confirmText || 'Yes, continue',
+                    cancelButtonText: 'Go back'
+                }).then(function (result) {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
                 });
+            });
+
+            var filters = document.getElementById('subFilters');
+            var list    = document.getElementById('subList');
+            var count   = document.getElementById('subCount');
+            var timer   = null;
+            var request = 0;
+
+            function load(url) {
+                var ticket = ++request;
+
+                list.style.opacity = '.5';
+
+                fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'partial=1', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                    .then(function (response) { return response.text(); })
+                    .then(function (html) {
+                        // A slow earlier keystroke must not overwrite a newer result.
+                        if (ticket !== request) return;
+
+                        list.innerHTML = html;
+                        list.style.opacity = '';
+
+                        var total = list.querySelector('#subTotal');
+                        if (total && count) count.textContent = total.dataset.total;
+
+                        history.replaceState(null, '', url);
+                    })
+                    .catch(function () {
+                        if (ticket === request) list.style.opacity = '';
+                    });
+            }
+
+            var clear = document.getElementById('subClear');
+
+            function currentUrl() {
+                var params = new URLSearchParams(new FormData(filters));
+
+                clear.classList.toggle('d-none',
+                    params.get('state') === 'all'
+                    && params.get('q') === ''
+                    && params.get('per_page') === '25');
+
+                return filters.dataset.url + '?' + params.toString();
+            }
+
+            filters.addEventListener('submit', function (event) {
+                event.preventDefault();
+                clearTimeout(timer);
+                load(currentUrl());
+            });
+
+            filters.querySelector('input[name="q"]').addEventListener('input', function () {
+                clearTimeout(timer);
+                timer = setTimeout(function () { load(currentUrl()); }, 300);
+            });
+
+            filters.querySelectorAll('select').forEach(function (select) {
+                select.addEventListener('change', function () {
+                    clearTimeout(timer);
+                    load(currentUrl());
+                });
+            });
+
+            // Paging stays on the page too, so the search box keeps its text.
+            list.addEventListener('click', function (event) {
+                var link = event.target.closest('.pagination a');
+                if (!link || !link.href) return;
+                event.preventDefault();
+                load(link.href);
             });
 
             @if (session('success'))

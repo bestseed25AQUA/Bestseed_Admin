@@ -36,6 +36,93 @@
   {{-- <link rel="stylesheet" href="{{asset('admin_assets/css/sea-theme.css')}}"> --}}
   
 <style>
+/* PT Sans draws the wrong glyph at U+20B9, so the rupee came out as a peso.
+   This maps that one codepoint to a system font and leaves every other
+   character on the theme font. */
+@font-face {
+  font-family: 'RupeeGlyph';
+  src: local('Segoe UI'), local('Noto Sans'), local('Nirmala UI'),
+       local('Roboto'), local('Arial Unicode MS'), local('Arial');
+  unicode-range: U+20B9;
+}
+
+body,
+body .content-wrapper,
+.table, .btn, .badge, .form-control, .swal2-container {
+  font-family: 'RupeeGlyph', 'PTSans', sans-serif;
+}
+
+/* Summary cards that link to a filter */
+a.stat-card-link,
+a.stat-card-link:hover,
+a.stat-card-link:focus,
+a.stat-card-link:active,
+a.stat-card-link * {
+  text-decoration: none !important;
+}
+
+a.stat-card-link .card {
+  transition: box-shadow .15s ease-in-out, transform .15s ease-in-out;
+}
+
+a.stat-card-link:hover .card {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+  transform: translateY(-1px);
+}
+
+/* Farmer autocomplete on the subscription form */
+.farmer-suggestions {
+  position: absolute;
+  z-index: 1050;
+  left: 15px;
+  right: 15px;
+  top: calc(100% - 20px);
+  max-height: 320px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+}
+
+.farmer-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #f1f3f5;
+  background: #fff;
+  cursor: pointer;
+}
+
+.farmer-suggestion:last-child { border-bottom: 0; }
+.farmer-suggestion:hover,
+.farmer-suggestion.is-active { background: #eef5ff; }
+
+.farmer-suggestion-main { display: block; font-size: 14px; }
+.farmer-suggestion-meta { display: block; font-size: 11.5px; color: #7b8794; margin-top: 2px; }
+.farmer-suggestion-empty { padding: 12px; font-size: 13px; color: #7b8794; }
+
+/* Count pill on a sidebar item */
+.sidebar .nav .nav-item .nav-link .sidebar-count {
+  margin-left: auto;
+  margin-right: 8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(231, 76, 60, .35);
+}
+
 /* Navbar search container */
 .navbar .navbar-nav .nav-search {
   position: relative;
@@ -104,6 +191,95 @@
   .navbar .navbar-nav .nav-search .search-input:focus {
     width: 100%;
   }
+}
+
+/* Confirmation dialogs on the subscription screens */
+.swal-tidy {
+  border-radius: 10px;
+  padding: 26px 30px 24px;
+}
+
+.swal-tidy .swal2-icon {
+  width: 52px;
+  height: 52px;
+  margin: 4px auto 14px;
+  border-width: 3px;
+}
+
+.swal-tidy .swal2-icon .swal2-icon-content {
+  font-size: 2.1rem;
+}
+
+.swal-tidy-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2f3542;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.swal-tidy .swal2-html-container {
+  margin: 14px 0 0;
+  font-size: .9rem;
+  color: #4b5563;
+}
+
+.swal-tidy .swal2-actions {
+  margin-top: 22px;
+  gap: 10px;
+}
+
+.swal-change {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  text-align: left;
+  padding: 9px 0;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.swal-change:last-child {
+  border-bottom: 0;
+}
+
+.swal-change-label {
+  flex: 0 0 132px;
+  font-weight: 600;
+  font-size: .82rem;
+  color: #6b7280;
+}
+
+.swal-change-from {
+  font-size: .85rem;
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+
+.swal-change-arrow {
+  margin: 0 10px;
+  color: #c3c9d4;
+  font-size: .75rem;
+}
+
+.swal-change-to {
+  font-size: .85rem;
+  font-weight: 700;
+  color: #14804a;
+  background: #e7f6ed;
+  border-radius: 4px;
+  padding: 2px 9px;
+}
+
+.swal-note {
+  text-align: left;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: #6b7280;
+  background: #fbf8ef;
+  border-left: 3px solid #e0a800;
+  border-radius: 0 4px 4px 0;
+  padding: 10px 12px;
+  margin: 16px 0 0;
 }
 
 </style>

@@ -16,6 +16,10 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class FarmAccessService
 {
+    public function __construct(private readonly SubscriptionService $subscriptions)
+    {
+    }
+
     /**
      * Resolve one farmer's standing on one farm.
      *
@@ -29,8 +33,10 @@ class FarmAccessService
             return FarmPermission::none();
         }
 
+        $locked = $this->subscriptions->isFarmLocked($farm);
+
         if ((int) $farm->farmer_id === (int) $farmerId) {
-            return FarmPermission::owner();
+            return $locked ? FarmPermission::owner()->readOnly() : FarmPermission::owner();
         }
 
         $member = FarmAccessMember::query()
@@ -40,7 +46,11 @@ class FarmAccessService
             ->latest('id')
             ->first();
 
-        return $member ? FarmPermission::fromMember($member) : FarmPermission::none();
+        $permission = $member ? FarmPermission::fromMember($member) : FarmPermission::none();
+
+        // A shared farm follows its OWNER's allowance: the manager did not
+        // buy the package and cannot be judged against their own.
+        return $locked && !$permission->isDenied() ? $permission->readOnly() : $permission;
     }
 
     /**
@@ -80,15 +90,23 @@ class FarmAccessService
         $permissions = [];
 
         foreach ($farms as $farm) {
+            $locked = $this->subscriptions->isFarmLocked($farm);
+
             if ((int) $farm->farmer_id === (int) $farmerId) {
-                $permissions[$farm->id] = FarmPermission::owner();
+                $permissions[$farm->id] = $locked
+                    ? FarmPermission::owner()->readOnly()
+                    : FarmPermission::owner();
                 continue;
             }
 
             $member = $members->get($farm->id);
-            $permissions[$farm->id] = $member
+            $permission = $member
                 ? FarmPermission::fromMember($member)
                 : FarmPermission::none();
+
+            $permissions[$farm->id] = $locked && !$permission->isDenied()
+                ? $permission->readOnly()
+                : $permission;
         }
 
         return $permissions;

@@ -35,18 +35,12 @@
                              giving a stranger's account a subscription somebody
                              else paid for. --}}
                         <h5 class="mb-3">1. Find the farmer</h5>
-                        <div class="form-group">
-                            <label>Mobile number</label>
-                            <div class="input-group">
-                                <input type="text" id="lookupMobile" class="form-control"
-                                       placeholder="10-digit mobile" maxlength="15"
-                                       autocomplete="off">
-                                <div class="input-group-append">
-                                    <button class="btn btn-outline-primary" type="button" id="lookupBtn">
-                                        <i class="fas fa-search mr-1"></i> Find
-                                    </button>
-                                </div>
-                            </div>
+                        <div class="form-group position-relative">
+                            <label>Mobile number or name</label>
+                            <input type="text" id="lookupMobile" class="form-control"
+                                   placeholder="Start typing a mobile number or name"
+                                   maxlength="40" autocomplete="off">
+                            <div id="lookupSuggestions" class="farmer-suggestions d-none"></div>
                             <small class="form-text text-muted">
                                 The farmer must already have an account in the app.
                             </small>
@@ -156,10 +150,14 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            var mobileInput = document.getElementById('lookupMobile');
-            var lookupBtn   = document.getElementById('lookupBtn');
+            var input       = document.getElementById('lookupMobile');
+            var suggestions = document.getElementById('lookupSuggestions');
             var resultBox   = document.getElementById('lookupResult');
             var farmerId    = document.getElementById('farmerId');
+
+            var timer   = null;
+            var matches = [];
+            var active  = -1;
 
             function escapeHtml(value) {
                 var div = document.createElement('div');
@@ -167,77 +165,126 @@
                 return div.innerHTML;
             }
 
-            function render(html) {
-                resultBox.innerHTML = html;
+            function hide() {
+                suggestions.classList.add('d-none');
+                suggestions.innerHTML = '';
+                active = -1;
             }
 
-            function lookup() {
-                var mobile = mobileInput.value.replace(/\D/g, '');
-
-                if (mobile.length < 10) {
-                    render('<div class="alert alert-warning mb-0">Enter the full 10-digit mobile number.</div>');
+            function render() {
+                if (matches.length === 0) {
+                    suggestions.innerHTML =
+                        '<div class="farmer-suggestion-empty">No farmer found. '
+                        + 'They must have an account in the app first.</div>';
+                    suggestions.classList.remove('d-none');
                     return;
                 }
 
-                lookupBtn.disabled = true;
-                render('<div class="text-muted">Searching…</div>');
+                suggestions.innerHTML = matches.map(function (f, i) {
+                    var held = f.active
+                        ? '<span class="badge badge-success">' + escapeHtml(f.active.plan_label)
+                          + ' to ' + escapeHtml(f.active.expires_on) + '</span>'
+                        : '<span class="badge badge-light border">No subscription</span>';
 
-                fetch('{{ route('subscriptions.lookup') }}?mobile=' + encodeURIComponent(mobile), {
-                    headers: { 'Accept': 'application/json' }
-                })
-                    .then(function (response) {
-                        return response.json().then(function (body) {
-                            return { ok: response.ok, body: body };
-                        });
-                    })
-                    .then(function (result) {
-                        lookupBtn.disabled = false;
+                    return '<button type="button" class="farmer-suggestion' + (i === active ? ' is-active' : '') + '" data-index="' + i + '">'
+                        + '<span class="farmer-suggestion-main">'
+                        + '<strong>' + escapeHtml(f.name) + '</strong>'
+                        + '<span class="text-muted"> · ' + escapeHtml(f.mobile) + '</span>'
+                        + '</span>'
+                        + '<span class="farmer-suggestion-meta">'
+                        + escapeHtml(f.farms) + ' farm(s) ' + held
+                        + '</span>'
+                        + '</button>';
+                }).join('');
 
-                        if (!result.ok || !result.body.status) {
-                            farmerId.value = '';
-                            render('<div class="alert alert-danger mb-0">'
-                                + escapeHtml(result.body.message || 'Farmer not found.')
-                                + '</div>');
-                            return;
-                        }
-
-                        var farmer = result.body.farmer;
-                        var active = result.body.active;
-                        farmerId.value = farmer.id;
-
-                        // Showing the existing term matters: it is what stops
-                        // the person on the phone charging twice for days the
-                        // farmer already has.
-                        var existing = active
-                            ? '<div class="alert alert-info mb-0 mt-2">Already subscribed: <strong>'
-                                + escapeHtml(active.plan_label) + '</strong> until <strong>'
-                                + escapeHtml(active.expires_on) + '</strong> ('
-                                + escapeHtml(active.days_remaining) + ' days left).'
-                                + ' A new package will start the day after that.</div>'
-                            : '<div class="alert alert-secondary mb-0 mt-2">No active subscription.</div>';
-
-                        render('<div class="alert alert-success mb-0"><strong>'
-                            + escapeHtml(farmer.name) + '</strong> · ' + escapeHtml(farmer.mobile)
-                            + ' · ' + escapeHtml(farmer.farms) + ' farm(s)</div>' + existing);
-                    })
-                    .catch(function () {
-                        lookupBtn.disabled = false;
-                        farmerId.value = '';
-                        render('<div class="alert alert-danger mb-0">Could not reach the server. Try again.</div>');
-                    });
+                suggestions.classList.remove('d-none');
             }
 
-            lookupBtn.addEventListener('click', lookup);
+            function choose(index) {
+                var farmer = matches[index];
+                if (!farmer) return;
 
-            mobileInput.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter') {
-                    // Otherwise Enter submits the subscription form with no
-                    // farmer chosen.
+                farmerId.value = farmer.id;
+                input.value = farmer.mobile;
+                hide();
+
+                var held = farmer.active
+                    ? '<div class="alert alert-info mb-0 mt-2">Already subscribed: <strong>'
+                        + escapeHtml(farmer.active.plan_label) + '</strong> until <strong>'
+                        + escapeHtml(farmer.active.expires_on) + '</strong> ('
+                        + escapeHtml(farmer.active.days_remaining) + ' days left).'
+                        + ' A new package is added on top of what they already hold.</div>'
+                    : '<div class="alert alert-secondary mb-0 mt-2">No active subscription.</div>';
+
+                resultBox.innerHTML = '<div class="alert alert-success mb-0"><strong>'
+                    + escapeHtml(farmer.name) + '</strong> · ' + escapeHtml(farmer.mobile)
+                    + ' · ' + escapeHtml(farmer.farms) + ' farm(s)</div>' + held;
+            }
+
+            function search() {
+                var term = input.value.trim();
+
+                farmerId.value = '';
+                resultBox.innerHTML = '';
+
+                if (term.length < 3) {
+                    hide();
+                    return;
+                }
+
+                fetch('{{ route('subscriptions.lookup') }}?q=' + encodeURIComponent(term), {
+                    headers: { 'Accept': 'application/json' }
+                })
+                    .then(function (response) { return response.json(); })
+                    .then(function (body) {
+                        matches = body.farmers || [];
+                        active = -1;
+                        render();
+                    })
+                    .catch(function () { hide(); });
+            }
+
+            input.addEventListener('input', function () {
+                clearTimeout(timer);
+                timer = setTimeout(search, 250);
+            });
+
+            input.addEventListener('focus', function () {
+                if (matches.length > 0 && input.value.trim().length >= 3) render();
+            });
+
+            input.addEventListener('keydown', function (event) {
+                if (suggestions.classList.contains('d-none')) {
+                    if (event.key === 'Enter') event.preventDefault();
+                    return;
+                }
+
+                if (event.key === 'ArrowDown') {
                     event.preventDefault();
-                    lookup();
+                    active = Math.min(active + 1, matches.length - 1);
+                    render();
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    active = Math.max(active - 1, 0);
+                    render();
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    choose(active >= 0 ? active : 0);
+                } else if (event.key === 'Escape') {
+                    hide();
                 }
             });
 
+            suggestions.addEventListener('mousedown', function (event) {
+                var button = event.target.closest('.farmer-suggestion');
+                if (!button) return;
+                event.preventDefault();
+                choose(parseInt(button.dataset.index, 10));
+            });
+
+            document.addEventListener('click', function (event) {
+                if (!suggestions.contains(event.target) && event.target !== input) hide();
+            });
             document.getElementById('subscriptionForm').addEventListener('submit', function (event) {
                 if (!farmerId.value) {
                     event.preventDefault();

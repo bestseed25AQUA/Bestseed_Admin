@@ -18,6 +18,9 @@ use Carbon\Carbon;
  */
 class SubscriptionService
 {
+    /** @var array<int, array<int>> */
+    private array $writableCache = [];
+
     /** How many farms a farmer may own without paying. */
     public function freeLimit(): int
     {
@@ -156,6 +159,62 @@ class SubscriptionService
     }
 
     /**
+     * Farm ids this farmer may still CHANGE, oldest first up to their allowance.
+     *
+     * A lapsed package drops the allowance back to the free limit, so the
+     * farms it paid for stop being editable rather than disappearing. Oldest
+     * first because the free allowance is the farms they had before they ever
+     * paid: those must keep working whatever happens to a subscription.
+     */
+    public function writableFarmIds(int $farmerId): array
+    {
+        if (array_key_exists($farmerId, $this->writableCache)) {
+            return $this->writableCache[$farmerId];
+        }
+
+        $allowance = $this->farmAllowance($farmerId);
+
+        $ids = $allowance < 1
+            ? []
+            : Farm::where('farmer_id', $farmerId)
+                ->orderBy('id')
+                ->limit($allowance)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+        return $this->writableCache[$farmerId] = $ids;
+    }
+
+    /** The farms that have gone read-only, for the app to mark. */
+    public function lockedFarmIds(int $farmerId): array
+    {
+        $writable = $this->writableFarmIds($farmerId);
+
+        return Farm::where('farmer_id', $farmerId)
+            ->when($writable !== [], fn ($q) => $q->whereNotIn('id', $writable))
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /**
+     * Is this farm read-only because its OWNER's package lapsed?
+     *
+     * Judged against the owner, not the caller: a manager working a farm they
+     * were given is bound by the allowance of the person who owns it.
+     */
+    public function isFarmLocked(Farm $farm): bool
+    {
+        return !in_array(
+            (int) $farm->id,
+            $this->writableFarmIds((int) $farm->farmer_id),
+            true
+        );
+    }
+
+    /**
      * The plan catalogue, shaped for the app's bottom sheet.
      *
      * Served rather than hardcoded in the app so a price change does not need
@@ -243,6 +302,10 @@ class SubscriptionService
                 ->map(fn (FarmSubscription $s) => $this->present($s))
                 ->values()
                 ->all(),
+
+            // Which of their farms have gone read-only, so the app can
+            // mark them without asking per farm.
+            'locked_farm_ids' => $this->lockedFarmIds($farmerId),
 
             'plans' => $this->plans(),
         ];

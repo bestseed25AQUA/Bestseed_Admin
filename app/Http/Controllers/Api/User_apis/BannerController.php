@@ -567,6 +567,43 @@ public function farmManagementIcon(Request $request)
     }
 }
 
+/** Carousel across the top of the Farm Management screen. */
+public function farmManagementBanner(Request $request)
+{
+    try {
+        $banners = Banner::where('screen', 'farm_management_banner')
+            ->where('status', 1)
+            ->orderByRaw('COALESCE(priority, 999999) asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $bannerList = $banners->map(function ($banner) {
+            $fileUrl = $banner->image ? url($banner->image) : null;
+            $extension = strtolower(pathinfo($banner->image ?? '', PATHINFO_EXTENSION));
+            $type = in_array($extension, ['mp4', 'webm', 'mov', 'avi', 'wmv']) ? 'video' : 'image';
+
+            return [
+                'id' => $banner->id,
+                'title' => $banner->title,
+                'type' => $type,
+                'url' => $fileUrl,
+                'thumbnail' => $banner->thumbnail ? url($banner->thumbnail) : null,
+                'redirect_url' => $banner->redirect_url,
+            ];
+        })->values();
+
+        return response()->json([
+            'status' => $bannerList->isNotEmpty(),
+            'banners' => $bannerList,
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'status' => false,
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
 public function homeSection1Background(Request $request)
 {
     try {

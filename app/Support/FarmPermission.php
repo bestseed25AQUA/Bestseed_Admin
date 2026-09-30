@@ -32,7 +32,32 @@ final class FarmPermission
         public readonly bool $totalFeed,
         public readonly bool $create,
         public readonly bool $delete,
+        public readonly bool $locked = false,
     ) {
+    }
+
+    /**
+     * The same holder, on a farm beyond the owner's paid allowance.
+     *
+     * View and tank status survive on purpose. A farmer who let a package
+     * lapse must still be able to pull the reports for the crops they grew,
+     * and a crop already in the water has to be harvestable — locking a farm
+     * mid-cycle with fish in it would be taking their livelihood, not their
+     * subscription. Everything that ADDS to the farm is withdrawn until they
+     * renew.
+     */
+    public function readOnly(): self
+    {
+        return new self(
+            role: $this->role,
+            view: $this->view,
+            edit: false,
+            tankStatus: $this->tankStatus,
+            totalFeed: false,
+            create: false,
+            delete: false,
+            locked: true,
+        );
     }
 
     public static function owner(): self
@@ -99,7 +124,7 @@ final class FarmPermission
         // checkbox the owner already ticks for "may add things" governs it —
         // rather than the role, which said a partner could always share and a
         // manager never could, whatever either had been given.
-        return $this->isOwner() || $this->create;
+        return !$this->locked && ($this->isOwner() || $this->create);
     }
 
     /**
@@ -112,7 +137,7 @@ final class FarmPermission
      */
     public function canRevokeAccess(): bool
     {
-        return $this->isOwner() || ($this->create && $this->delete);
+        return !$this->locked && ($this->isOwner() || ($this->create && $this->delete));
     }
 
     /**
@@ -138,6 +163,9 @@ final class FarmPermission
         return [
             'role'        => $this->role,
             'is_owner'    => $this->isOwner(),
+            // Read-only because the owner's package lapsed, not because of
+            // anything this person was or was not given.
+            'locked'      => $this->locked,
             // Sent rather than left for the app to re-derive, so the option it
             // offers and the rule the server enforces cannot drift apart.
             'can_share_access'  => $this->canShareAccess(),

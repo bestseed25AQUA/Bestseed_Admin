@@ -23,6 +23,9 @@ use Illuminate\Validation\Rule;
  */
 class SubscriptionController extends Controller
 {
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+    private const DUE_SOON_PER_PAGE = 10;
+
     public function __construct(private readonly SubscriptionService $subscriptions)
     {
         $this->middleware('permission:subscriptions.view')->only(['index', 'show']);
@@ -68,12 +71,14 @@ class SubscriptionController extends Controller
             });
         }
 
+        $perPage = $this->perPage($request->input('per_page'));
+
         $subscriptions = $query
             ->orderByRaw('cancelled_at IS NULL DESC')
             ->orderBy('expires_at', $filter === 'expiring' ? 'asc' : 'desc')
             ->orderByDesc('id')
-            ->paginate(25)
-            ->withQueryString();
+            ->paginate($perPage)
+            ->appends($request->except(['page', 'partial']));
 
         // The 15-day notice.
         //
@@ -87,17 +92,30 @@ class SubscriptionController extends Controller
         // the people who are about to become expired.
         $noticeDays = (int) config('subscriptions.admin_notice_days', 15);
 
-        return view('admin.subscriptions.index', [
-            'subscriptions' => $subscriptions,
-            'filter'        => $filter,
-            'search'        => $search,
-            'counts'        => $this->counts(),
-            'noticeDays'    => $noticeDays,
-            'dueSoon'       => FarmSubscription::with('farmer')
+        $list = [
+            'subscriptions'  => $subscriptions,
+            'filter'         => $filter,
+            'search'         => $search,
+            'perPage'        => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+        ];
+
+        // The table on its own, for the live filter as the admin types.
+        if ($request->boolean('partial')) {
+            return view('admin.subscriptions.partials.list', $list);
+        }
+
+        return view('admin.subscriptions.index', $list + [
+            'counts'     => $this->counts(),
+            'noticeDays' => $noticeDays,
+            // Its own page name, so paging the notice does not reset the list
+            // below it and vice versa.
+            'dueSoon'    => FarmSubscription::with('farmer')
                 ->expiringWithin($noticeDays)
                 ->orderBy('expires_at')
-                ->limit(50)
-                ->get(),
+                ->orderBy('id')
+                ->paginate(self::DUE_SOON_PER_PAGE, ['*'], 'due')
+                ->appends($request->except(['due', 'partial'])),
         ]);
     }
 
@@ -115,6 +133,14 @@ class SubscriptionController extends Controller
             'expiring' => FarmSubscription::expiringSoon()->count(),
             'expired'  => FarmSubscription::expired()->count(),
         ];
+    }
+
+    /** Keeps a hand-typed per_page out of the query string. */
+    private function perPage(mixed $value): int
+    {
+        $value = (int) $value;
+
+        return in_array($value, self::PER_PAGE_OPTIONS, true) ? $value : 25;
     }
 
     public function create(Request $request)
@@ -135,42 +161,65 @@ class SubscriptionController extends Controller
      * Returns their current standing too, so the person on the phone can say
      * "you already have until the 12th" before taking money twice.
      */
+    /** Matching farmers as the admin types, by mobile or name. */
     public function lookupFarmer(Request $request)
     {
-        $digits = preg_replace('/\D/', '', (string) $request->input('mobile', ''));
+        $term   = trim((string) $request->input('q', $request->input('mobile', '')));
+        $digits = preg_replace('/\D/', '', $term);
 
-        if (strlen($digits) < 10) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'Enter the full 10-digit mobile number.',
-            ], 422);
+        if (mb_strlen($term) < 3 && mb_strlen($digits) < 3) {
+            return response()->json(['status' => true, 'farmers' => []]);
         }
 
-        $farmer = Farmer::where('mobile', $digits)
-            ->first(['id', 'first_name', 'last_name', 'mobile']);
+        $farmers = Farmer::query()
+            ->when($digits !== '', fn ($q) => $q->where('mobile', 'like', "%{$digits}%"))
+            ->when($digits === '', function ($q) use ($term) {
+                $q->where(function ($inner) use ($term) {
+                    $inner->where('first_name', 'like', "%{$term}%")
+                        ->orWhere('last_name', 'like', "%{$term}%");
+                });
+            })
+            // An exact number first, then the shortest numbers, so a full
+            // 10-digit entry puts its one true match at the top.
+            ->orderByRaw('CASE WHEN mobile = ? THEN 0 ELSE 1 END', [$digits ?: '-'])
+            ->orderBy('mobile')
+            ->limit(8)
+            ->get(['id', 'first_name', 'last_name', 'mobile']);
 
-        if (!$farmer) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'No farmer is registered with this number.',
-            ], 404);
+        if ($farmers->isEmpty()) {
+            return response()->json(['status' => true, 'farmers' => []]);
         }
 
-        $active = $this->subscriptions->activeFor($farmer->id);
+        $ids = $farmers->pluck('id');
+
+        $farmCounts = Farm::whereIn('farmer_id', $ids)
+            ->selectRaw('farmer_id, COUNT(*) AS total')
+            ->groupBy('farmer_id')
+            ->pluck('total', 'farmer_id');
+
+        $live = FarmSubscription::whereIn('farmer_id', $ids)
+            ->active()
+            ->get()
+            ->groupBy('farmer_id');
 
         return response()->json([
-            'status' => true,
-            'farmer' => [
-                'id'     => $farmer->id,
-                'name'   => trim($farmer->first_name . ' ' . $farmer->last_name) ?: 'Unnamed farmer',
-                'mobile' => $farmer->mobile,
-                'farms'  => Farm::where('farmer_id', $farmer->id)->count(),
-            ],
-            'active' => $active ? [
-                'plan_label'     => $active->plan_label,
-                'expires_on'     => $active->expires_at->format('d M Y'),
-                'days_remaining' => $active->days_remaining,
-            ] : null,
+            'status'  => true,
+            'farmers' => $farmers->map(function (Farmer $farmer) use ($farmCounts, $live) {
+                $held = $live->get($farmer->id);
+
+                return [
+                    'id'     => $farmer->id,
+                    'name'   => trim($farmer->first_name . ' ' . $farmer->last_name) ?: 'Unnamed farmer',
+                    'mobile' => $farmer->mobile,
+                    'farms'  => (int) ($farmCounts[$farmer->id] ?? 0),
+                    'active' => $held && $held->isNotEmpty() ? [
+                        'count'          => $held->count(),
+                        'plan_label'     => $held->first()->plan_label,
+                        'expires_on'     => $held->sortByDesc('expires_at')->first()->expires_at->format('d M Y'),
+                        'days_remaining' => $held->sortByDesc('expires_at')->first()->days_remaining,
+                    ] : null,
+                ];
+            })->values(),
         ]);
     }
 
@@ -318,13 +367,15 @@ class SubscriptionController extends Controller
             'expires_at.after_or_equal' => 'The end date cannot be before the start date.',
         ]);
 
-        $plan = config("subscriptions.plans.{$validated['plan_key']}");
+        $plan = SubscriptionPlan::where('key', $validated['plan_key'])->firstOrFail();
 
         $subscription->update([
-            'plan_key'   => $validated['plan_key'],
-            'plan_label' => $plan['label'] ?? $validated['plan_key'],
-            'amount'     => $plan['amount'] ?? 0,
-            'months'     => $plan['months'] ?? 1,
+            'plan_id'    => $plan->id,
+            'plan_key'   => $plan->key,
+            'plan_label' => $plan->label,
+            'farm_limit' => (int) $plan->farm_limit,
+            'amount'     => $plan->amount,
+            'months'     => (int) $plan->months,
             'starts_at'  => $validated['starts_at'],
             'expires_at' => $validated['expires_at'],
             'notes'      => $validated['notes'] ?? null,

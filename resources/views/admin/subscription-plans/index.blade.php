@@ -22,12 +22,6 @@
 
     <div class="card">
         <div class="card-body">
-            <p class="text-muted small">
-                A package grants a number of farms for a number of months. What a farmer may own is
-                the free allowance ({{ config('subscriptions.free_farm_limit', 2) }})
-                plus every package they currently hold — so a farmer needing one more farm buys
-                another package alongside the one they have.
-            </p>
 
             @if ($plans->isEmpty())
                 <p class="text-muted mb-0">No packages yet. Create one to start selling.</p>
@@ -71,7 +65,12 @@
                                         {{-- Retired, never deleted: subscriptions already sold point
                                              at it and their history must keep reading correctly. --}}
                                         <form action="{{ route('subscription-plans.toggle', $plan) }}"
-                                              method="POST" class="d-inline">
+                                              method="POST" class="d-inline js-confirm"
+                                              data-title="{{ $plan->is_active ? 'Retire this package?' : 'Put this package back on sale?' }}"
+                                              data-message="{{ $plan->is_active
+                                                  ? '"' . $plan->label . '" stops being offered to farmers and disappears from the Add Subscription screen. The ' . $plan->active_subscriptions_count . ' live subscription(s) already sold on it keep running to their end dates and are not affected.'
+                                                  : '"' . $plan->label . '" starts being offered again — ' . $plan->farm_limit . ' farm(s) for ' . $plan->months . ' month(s) at ' . config('subscriptions.currency_symbol', '₹') . number_format($plan->amount, 0) . '.' }}"
+                                              data-confirm-text="{{ $plan->is_active ? 'Yes, retire it' : 'Yes, put on sale' }}">
                                             @csrf
                                             <button class="btn btn-sm {{ $plan->is_active ? 'btn-outline-secondary' : 'btn-success' }} btn-action"
                                                     title="{{ $plan->is_active ? 'Retire' : 'Put back on sale' }}">
@@ -88,4 +87,41 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('form.js-confirm').forEach(function (form) {
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                Swal.fire({
+                    title: form.dataset.title || 'Are you sure?',
+                    text: form.dataset.message || '',
+                    icon: 'warning',
+                    width: 560,
+                    showCancelButton: true,
+                    confirmButtonText: form.dataset.confirmText || 'Yes, continue',
+                    cancelButtonText: 'Go back'
+                }).then(function (result) {
+                    if (result.isConfirmed) form.submit();
+                });
+            });
+        });
+
+        @if (session('success'))
+            Swal.fire({
+                toast: true, position: 'top-right', icon: 'success',
+                title: "{{ addslashes(session('success')) }}",
+                showConfirmButton: false, timer: 3500, timerProgressBar: true
+            });
+        @endif
+
+        @if (session('error'))
+            Swal.fire({
+                toast: true, position: 'top-right', icon: 'error',
+                title: "{{ addslashes(session('error')) }}",
+                showConfirmButton: false, timer: 3500, timerProgressBar: true
+            });
+        @endif
+    });
+</script>
 @endsection

@@ -226,6 +226,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
+{{-- Loaded once here so every screen has Swal available. Views that also
+     pull the CDN copy keep working. --}}
+<script src="{{ asset('admin_assets/ravindra/js/sweetalert2@11.js') }}"></script>
+
 @stack('scripts')
 @yield('jscodes')
 

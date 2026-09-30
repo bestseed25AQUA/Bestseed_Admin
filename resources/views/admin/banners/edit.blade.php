@@ -141,6 +141,9 @@
                                         <option value="farm_management_icon"
                                             {{ old('screen', $banner->screen ?? '') == 'farm_management_icon' ? 'selected' : '' }}>Farm Management
                                             Icon</option>
+                                        <option value="farm_management_banner"
+                                            {{ old('screen', $banner->screen ?? '') == 'farm_management_banner' ? 'selected' : '' }}>Farm Management
+                                            Banner</option>
                                         <option value="home_section1_bg"
                                             {{ old('screen', $banner->screen ?? '') == 'home_section1_bg' ? 'selected' : '' }}>HomeScreen
                                             Section1 Background</option>

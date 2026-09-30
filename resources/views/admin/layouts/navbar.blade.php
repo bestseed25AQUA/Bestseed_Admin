@@ -153,7 +153,8 @@
              about to, so a missed renewal is visible without opening the page. --}}
         @permission('subscriptions.view')
         @php
-            $subsActive = str_starts_with($currentRoute ?? '', 'subscriptions.');
+            $subsActive = str_starts_with($currentRoute ?? '', 'subscriptions.')
+                || str_starts_with($currentRoute ?? '', 'subscription-plans.');
             // Guarded: the sidebar renders on every admin page, and a missing
             // table before migrations run must not take the whole panel down.
             try {
@@ -169,7 +170,9 @@
                 <i class="fas fa-id-card menu-icon"></i>
                 <span class="menu-title">Subscriptions</span>
                 @if ($subsAlertCount > 0)
-                    <span class="badge badge-danger ml-2">{{ $subsAlertCount }}</span>
+                    <span class="sidebar-count" title="{{ $subsAlertCount }} expired or expiring soon">
+                        {{ $subsAlertCount > 99 ? '99+' : $subsAlertCount }}
+                    </span>
                 @endif
                 <i class="menu-arrow"></i>
             </a>
@@ -183,6 +186,9 @@
                             <a class="nav-link" href="{{ route('subscriptions.create') }}">Add Subscription</a>
                         </li>
                     @endpermission
+                    <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'subscription-plans.') ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('subscription-plans.index') }}">Packages</a>
+                    </li>
                 </ul>
             </div>
         </li>

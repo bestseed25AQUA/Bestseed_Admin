@@ -4,7 +4,7 @@
 <div class="content-wrapper">
     <div class="page-header">
         <h3 class="page-title d-flex align-items-center">
-            <i class="fas fa-rotate mr-2"></i> Renew Subscription
+            <i class="fas fa-redo mr-2"></i> Renew Subscription
         </h3>
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
@@ -34,7 +34,7 @@
                 This record is kept as it is; the renewal is recorded as a new term.
             </div>
 
-            <form action="{{ route('subscriptions.renew', $subscription) }}" method="POST">
+            <form action="{{ route('subscriptions.renew', $subscription) }}" method="POST" id="renewForm">
                 @csrf
 
                 <div class="row">
@@ -44,6 +44,8 @@
                             @foreach ($plans as $plan)
                                 <option value="{{ $plan->key }}"
                                         data-months="{{ $plan->months }}"
+                                        data-label="{{ $plan->label }}"
+                                        data-farms="{{ $plan->farm_limit }}"
                                         {{ old('plan_key', $subscription->plan_key) === $plan->key ? 'selected' : '' }}>
                                     {{ $plan->summary }}
                                 </option>
@@ -115,6 +117,53 @@
 
         plan.addEventListener('change', reprice);
         from.addEventListener('change', reprice);
+
+        var form = document.getElementById('renewForm');
+        var farmer = @json(trim(($subscription->farmer->first_name ?? '') . ' ' . ($subscription->farmer->last_name ?? '')) ?: 'This farmer');
+        var confirmed = false;
+
+        function formatDate(iso) {
+            if (!iso) return '—';
+            var p = iso.split('-');
+            return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric'
+            });
+        }
+
+        form.addEventListener('submit', function (event) {
+            if (confirmed) return;
+            event.preventDefault();
+
+            var opt = plan.selectedOptions[0];
+
+            Swal.fire({
+                title: 'Confirm this renewal',
+                html: '<div class="text-left">'
+                    + '<p class="mb-2"><strong>' + farmer + '</strong> gets a new '
+                    + '<strong>' + opt.dataset.label + '</strong> subscription.</p>'
+                    + '<table class="table table-sm mb-2">'
+                    + '<tr><td class="text-left">Farms added</td><td class="text-left"><strong>'
+                    + opt.dataset.farms + '</strong></td></tr>'
+                    + '<tr><td class="text-left">Runs from</td><td class="text-left"><strong>'
+                    + formatDate(from.value) + '</strong></td></tr>'
+                    + '<tr><td class="text-left">Until</td><td class="text-left"><strong>'
+                    + formatDate(to.value) + '</strong></td></tr>'
+                    + '</table>'
+                    + '<p class="small text-muted mb-0">This is recorded as a NEW subscription '
+                    + 'alongside any they already hold, so their allowance is the total of both.</p>'
+                    + '</div>',
+                icon: 'question',
+                width: 560,
+                showCancelButton: true,
+                confirmButtonText: 'Yes, record renewal',
+                cancelButtonText: 'Go back'
+            }).then(function (result) {
+                if (result.isConfirmed) {
+                    confirmed = true;
+                    form.submit();
+                }
+            });
+        });
     })();
 </script>
 @endpush

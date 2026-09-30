@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'vendor.active' => \App\Http\Middleware\CheckVendorActive::class,
             'farmer.active' => \App\Http\Middleware\UpdateFarmerLastActive::class,
             'farm.access' => \App\Http\Middleware\EnsureFarmAccess::class,
+            'farm.unlocked' => \App\Http\Middleware\EnsureFarmNotLocked::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

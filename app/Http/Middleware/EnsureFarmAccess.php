@@ -91,6 +91,13 @@ class EnsureFarmAccess
         }
 
         if (!$granted) {
+            // A locked farm is refused for a different reason, and saying
+            // "your access does not allow this" would send the farmer to the
+            // person who shared it instead of to the renewal.
+            if ($permission->locked && !$permission->isDenied()) {
+                return $this->lockedResponse();
+            }
+
             // Read as a list, so a refusal names every ability that would have
             // worked rather than only the first.
             $needed = implode(' or ', $allowed);
@@ -103,10 +110,35 @@ class EnsureFarmAccess
             ], 403);
         }
 
+        // Tank status survives on a locked farm so a crop in the water can be
+        // harvested — but only in that direction. Switching a tank back on
+        // starts a NEW crop, which is adding to a farm they are no longer
+        // paying for.
+        if ($permission->locked && in_array('tank_status', $allowed, true)
+            && (int) $request->input('status') === 1) {
+            return $this->lockedResponse(
+                'Renew your subscription to start a new crop on this farm. '
+                . 'You can still harvest the tanks already running and '
+                . 'download their reports.'
+            );
+        }
+
         $request->attributes->set('farm', $farm);
         $request->attributes->set('farm_permission', $permission);
 
         return $next($request);
+    }
+
+    /** Refused because the package lapsed, not because of who is asking. */
+    private function lockedResponse(?string $message = null): Response
+    {
+        return response()->json([
+            'status'  => false,
+            'locked'  => true,
+            'message' => $message
+                ?? 'This farm is read-only until you renew your subscription. '
+                   . 'You can still view it, harvest tanks and download reports.',
+        ], 403);
     }
 
     /**
