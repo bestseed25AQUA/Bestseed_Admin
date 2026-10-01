@@ -251,6 +251,37 @@
                                     <i class="fas fa-plus mr-1"></i> Add Entry
                                 </button>
                             </div>
+
+                            {{-- The day's note.
+
+                                 A note belongs to the DAY, not the meal — a
+                                 tank fed three times has three rows and one
+                                 note between them. So this one box follows the
+                                 date above it: pick a day that already has a
+                                 note and it fills in, ready to be corrected;
+                                 saving writes it against that date whether or
+                                 not the meal is new.
+
+                                 Which also means the box can reach EVERY day,
+                                 not just today — change the date and the note
+                                 changes with it. --}}
+                            <div class="col-12 form-group mb-0">
+                                <label for="day_note">
+                                    Notes for this day
+                                    <span class="small text-muted">— optional</span>
+                                </label>
+                                {{-- What the box was showing when the page rendered.
+                                     The server compares the two and leaves the note
+                                     alone when they match, so adding a second meal
+                                     without touching the box cannot wipe it. --}}
+                                <input type="hidden" name="note_loaded" id="day_note_loaded"
+                                       value="{{ old('note_loaded') }}">
+                                <input type="text" name="note" id="day_note" maxlength="2000"
+                                       class="form-control"
+                                       value="{{ old('note') }}"
+                                       placeholder="Water change, aerator down, medicine given…">
+                                <small class="form-text text-muted" id="day_note_hint"></small>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -327,7 +358,7 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>ID</th><th>Date</th><th>Meals</th><th>Quantity (kg)</th>
+                                    <th>ID</th><th>Date</th><th>Meals</th><th>Quantity (kg)</th><th>Day note</th>
                                     <th>Source</th><th>Recorded</th><th class="text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -338,6 +369,22 @@
                                         <td>{{ \Illuminate\Support\Carbon::parse($entry->feed_date)->format('d-m-Y') }}</td>
                                         <td>{{ $entry->meals }}</td>
                                         <td>{{ number_format((float) $entry->feed_quantity, 2) }}</td>
+                                        {{-- Shown ONCE per day, on that day's first
+                                             row. The note belongs to the date, so
+                                             repeating it beside every meal would read
+                                             as several notes rather than one. --}}
+                                        @php
+                                            $entryDay = \Carbon\Carbon::parse($entry->feed_date)->toDateString();
+                                            $firstOfDay = ($shownNoteDay ?? null) !== $entryDay;
+                                            $shownNoteDay = $entryDay;
+                                        @endphp
+                                        <td class="small">
+                                            @if ($firstOfDay && !empty($notes[$entryDay]))
+                                                <span class="text-dark">{{ $notes[$entryDay] }}</span>
+                                            @else
+                                                <span class="text-muted">—</span>
+                                            @endif
+                                        </td>
                                         <td>
                                             @if ($entry->is_backfill)
                                                 {{-- Spread automatically across past days when the farm was
@@ -413,4 +460,50 @@
 
 @push('scripts')
     @include('admin.farm-management.partials._table-scripts', ['entity' => 'feed entries'])
+@endpush
+
+@push('scripts')
+{{-- One note box, every day.
+
+     A note belongs to the DAY. The form above records a meal, and meals come
+     several to a day — so rather than a note per entry, the single box follows
+     the date picker: choose a day that already has a note and it fills in, so
+     saving corrects that day rather than starting a second note for it. --}}
+<script>
+    (function () {
+        var NOTES = @json($notes ?? []);
+
+        var date = document.querySelector('input[name="feed_date"]');
+        var note = document.getElementById('day_note');
+        var hint = document.getElementById('day_note_hint');
+        if (!date || !note) return;
+
+        // What the server holds for the day currently chosen, so a box the
+        // admin has typed into is never overwritten from under them.
+        var lastLoaded = null;
+
+        function sync() {
+            var stored = NOTES[date.value] || '';
+
+            var untouched = (note.value === '' || note.value === lastLoaded);
+            if (untouched) note.value = stored;
+
+            lastLoaded = stored;
+
+            // Tell the server what this box started as, so it can tell an
+            // untouched field from one the admin deliberately emptied.
+            var loadedField = document.getElementById('day_note_loaded');
+            if (loadedField) loadedField.value = stored;
+
+            if (hint) {
+                hint.textContent = stored
+                    ? 'This day already has a note — saving will replace it. Clear the box to remove it.'
+                    : '';
+            }
+        }
+
+        date.addEventListener('change', sync);
+        sync();
+    })();
+</script>
 @endpush

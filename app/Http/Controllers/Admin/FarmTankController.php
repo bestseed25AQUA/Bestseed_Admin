@@ -8,6 +8,7 @@ use App\Models\Farm;
 use App\Models\Feed;
 use App\Models\Tank;
 use App\Models\TankBatch;
+use App\Models\TankDayNote;
 use App\Models\TankFeedHistory;
 use App\Services\TankBatchService;
 use App\Services\TankFeedReportService;
@@ -372,6 +373,14 @@ class FarmTankController extends Controller
             'entries'  => $entries,
             'batches'  => $batches,
             'selected' => $selected,
+            // Every note this tank holds, keyed by date. Sent whole so the one
+            // note box can follow the date picker without a request per change
+            // — a tank has a few dozen notes at most, and they are short.
+            'notes'    => TankDayNote::where('tank_id', $tank->id)
+                ->orderBy('note_date')
+                ->get()
+                ->mapWithKeys(fn ($n) => [$n->note_date->toDateString() => $n->note])
+                ->all(),
             'from'     => $from?->toDateString(),
             'to'       => $to?->toDateString(),
         ]);
@@ -428,6 +437,25 @@ class FarmTankController extends Controller
                 (float) $request->input('meals'),
                 (float) $request->input('feed_quantity'),
             );
+
+            // The day's note, written alongside.
+            //
+            // One per day, not per meal: a tank fed three times has three rows
+            // and one note between them, so this REPLACES whatever that date
+            // held rather than adding a second.
+            //
+            // `note_loaded` is what the form was showing when it rendered. The
+            // note is only touched when the two differ — so recording a second
+            // meal with the box left as it was changes nothing, while clearing
+            // the box deliberately still removes it. Without that comparison an
+            // untouched box read as "clear it", and adding meal 2 silently
+            // destroyed the note written with meal 1.
+            $submitted = trim((string) $request->input('note', ''));
+            $loaded    = trim((string) $request->input('note_loaded', ''));
+
+            if ($submitted !== $loaded) {
+                $this->saveDayNote($tank, $request->input('feed_date'), $submitted);
+            }
 
             return redirect()->back()->with('success', 'Feed entry added.');
         } catch (\Exception $e) {
@@ -555,6 +583,47 @@ class FarmTankController extends Controller
         ];
     }
 
+    /**
+     * Write, replace or clear one day's note for a tank.
+     *
+     * Attributed to the crop running on that DAY, so a note entered while
+     * reviewing an older batch belongs with that batch rather than the current
+     * one. Mirrors the app's endpoint exactly — the two must agree, because a
+     * farmer and an admin can be looking at the same day.
+     */
+    private function saveDayNote(Tank $tank, $date, string $note): void
+    {
+        $day  = Carbon::parse($date)->toDateString();
+        $note = trim($note);
+
+        if ($note === '') {
+            TankDayNote::where('tank_id', $tank->id)
+                ->whereDate('note_date', $day)
+                ->delete();
+
+            return;
+        }
+
+        $batch = TankBatch::where('tank_id', $tank->id)
+            ->whereDate('stocking_date', '<=', $day)
+            ->where(function ($q) use ($day) {
+                $q->whereNull('ended_at')->orWhereDate('ended_at', '>=', $day);
+            })
+            ->orderByDesc('id')
+            ->first()
+            ?? TankBatch::currentFor((int) $tank->id);
+
+        TankDayNote::updateOrCreate(
+            ['tank_id' => $tank->id, 'note_date' => $day],
+            [
+                'farm_id'    => $tank->farm_id,
+                'batch_id'   => $batch?->id,
+                'note'       => $note,
+                'created_by' => auth()->id(),
+            ]
+        );
+    }
+
     private function feedRules(): array
     {
         return [
@@ -566,6 +635,11 @@ class FarmTankController extends Controller
             // that day as one meal.
             'meals'         => 'required|integer|min:1|max:20',
             'feed_quantity' => 'required|numeric|min:0',
+            // The day's note. Nullable: most entries have none.
+            'note'          => 'nullable|string|max:2000',
+            // What the form was showing, so an untouched box is not read as a
+            // deliberate clearing. See storeFeed().
+            'note_loaded'   => 'nullable|string|max:2000',
         ];
     }
 }
