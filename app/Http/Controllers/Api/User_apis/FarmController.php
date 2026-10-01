@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse; //added for tank feed report csv
 use Illuminate\Support\Facades\Storage; //added for tank csv api
 use App\Services\FarmAccessService;
+use App\Services\FarmActivityLogger;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
@@ -36,8 +37,26 @@ class FarmController extends Controller
 {
     /** Upper bound on rows a single backfill may insert. */
 
-    public function __construct(private readonly FarmAccessService $farmAccess)
+    public function __construct(
+        private readonly FarmAccessService $farmAccess,
+        private readonly FarmActivityLogger $activity,
+    ) {
+    }
+
+    /** Dirty attributes as before → after pairs, labelled for the history. */
+    private function changeSummary($model, array $labels): array
     {
+        $changes = [];
+
+        foreach ($model->getDirty() as $field => $to) {
+            if (!isset($labels[$field])) {
+                continue;
+            }
+
+            $changes[$labels[$field]] = [$model->getOriginal($field), $to];
+        }
+
+        return $changes;
     }
 
     /**
@@ -747,6 +766,8 @@ class FarmController extends Controller
 
                 if(!empty($farm)){
 
+                    $this->activity->farmCreated($farm);
+
                     FarmImage::create(['farm_id'=>$farm->id, 'images' => json_encode($imagePaths)]);
 
                     //also create no of tanks i/p at farm create
@@ -765,6 +786,8 @@ class FarmController extends Controller
                         $tank->stocking_date = $row['stocking_date'];
                         $tank->save();
                         $tankIds[] = $tank->id;
+
+                        $this->activity->tankAdded($farm, $tank);
 
                         // Open the tank's first crop cycle.
                         //
@@ -1135,7 +1158,17 @@ class FarmController extends Controller
             //if image is uploaded at the time of edit end
 
             
+            $changes = $this->changeSummary($farm, [
+                'farm_name'      => 'Name',
+                'stocking_date'  => 'Stocking date',
+                'store'          => 'Store',
+                'low_feed_limit' => 'Low feed limit',
+                'no_of_tanks'    => 'Tanks',
+            ]);
+
             $farm->save();
+
+            $this->activity->farmUpdated($farm, $changes);
 
             //update farm image
             if($farm){
@@ -1189,6 +1222,9 @@ class FarmController extends Controller
                 'message' => 'Farm not found',
             ], 404);
         }
+
+        // Recorded BEFORE it goes, while the farm still has a name.
+        $this->activity->farmDeleted($farm);
 
         $farm->delete(); // soft delete
 
@@ -1254,7 +1290,11 @@ class FarmController extends Controller
                 
                 
 
-                //dd($tank); 
+                $farm = Farm::find($farm_id);
+
+                if ($farm) {
+                    $this->activity->tankAdded($farm, $tank);
+                }
 
                 return response()->json([
                     'status' => true,
@@ -1416,6 +1456,20 @@ public function addTodaysQuantity(Request $request){
                 $tank_feed_history->farm_id = $farm_id;
                 $tank_feed_history->save();
                 //if feed is there created feed history end
+
+                if ($feed_id > 0) {
+                    $this->activity->feedUpdated($farm_id_detail, $feed_date, [
+                        'Meals'    => [$previousMeals, $request->meals],
+                        'Quantity' => [$previousQuantity, $request->feed_quantity],
+                    ]);
+                } else {
+                    $this->activity->feedRecorded(
+                        $farm_id_detail,
+                        $feed_date,
+                        (float) $request->meals,
+                        (float) $request->feed_quantity
+                    );
+                }
 
                 // Keep the tank's running total in step with its rows.
                 // Recording feed used to leave this column untouched, so a tank
@@ -2898,7 +2952,23 @@ public function addTodaysQuantity(Request $request){
             $farm->low_feed_limit = $request->input('low_feed_limit');
         }
 
+        // The figure the farmer typed, not the column behind it — the stored
+        // value carries the feed already used and would read as a wild jump.
+        $storeChanged = $farm->isDirty('store');
+
+        $changes = [];
+
+        if ($storeChanged) {
+            $changes['Store stock'] = $request->store . ' kg';
+        }
+
+        if ($farm->isDirty('low_feed_limit')) {
+            $changes['Low feed limit'] = $request->input('low_feed_limit') . ' kg';
+        }
+
         $farm->save();
+
+        $this->activity->storeUpdated($farm, $changes);
 
         // -------------------------------
         // 4. Response success

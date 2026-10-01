@@ -81,21 +81,107 @@ class SubscriptionService
     }
 
     /**
-     * How many farms this farmer may own in total.
+     * How many farms this farmer may own in total RIGHT NOW.
      *
-     * Free allowance PLUS everything bought. Additive by decision: subscribing
-     * must never leave a farmer with fewer slots than they had for nothing, and
-     * a second package must always be worth buying.
+     * The free allowance plus the farms their live packages still grant, where
+     * a package's grant is spent by the farms created against it. Reported for
+     * the admin panel and older app builds; [remainingFarms] is what actually
+     * decides.
      */
     public function farmAllowance(int $farmerId): int
     {
-        return $this->freeLimit() + $this->purchasedFarmLimit($farmerId);
+        return $this->ownedFarmCount($farmerId) + $this->remainingFarms($farmerId);
     }
 
-    /** Slots left before another farm needs a package. Never negative. */
+    /**
+     * Free slots left, plus whatever each live package has not been spent on.
+     *
+     * A package grants the right to create N farms DURING ITS TERM, and that
+     * right is spent once. Buying another package therefore always buys new
+     * farms — it does not re-buy the ones already standing, which is why each
+     * farm records the package that paid for it.
+     *
+     * A zero-farm package grants nothing here on purpose: it is sold to keep
+     * existing farms usable, not to add more.
+     */
     public function remainingFarms(int $farmerId): int
     {
-        return max(0, $this->farmAllowance($farmerId) - $this->ownedFarmCount($farmerId));
+        $free = max(0, $this->freeLimit() - $this->ownedFarmCount($farmerId));
+
+        return $free + $this->unspentPackageSlots($farmerId);
+    }
+
+    /**
+     * Creation slots left across every live package, keyed by subscription id.
+     *
+     * @return array<int, int>
+     */
+    public function packageSlots(int $farmerId): array
+    {
+        $live = FarmSubscription::where('farmer_id', $farmerId)->active()->get();
+
+        if ($live->isEmpty()) {
+            return [];
+        }
+
+        $spent = Farm::whereIn('subscription_id', $live->pluck('id'))
+            ->selectRaw('subscription_id, COUNT(*) AS total')
+            ->groupBy('subscription_id')
+            ->pluck('total', 'subscription_id');
+
+        $slots = [];
+
+        foreach ($live as $subscription) {
+            $slots[$subscription->id] = max(
+                0,
+                (int) $subscription->farm_limit - (int) ($spent[$subscription->id] ?? 0)
+            );
+        }
+
+        return $slots;
+    }
+
+    public function unspentPackageSlots(int $farmerId): int
+    {
+        return array_sum($this->packageSlots($farmerId));
+    }
+
+    /**
+     * The package a farm created now should be charged to, or null for free.
+     *
+     * Soonest to expire first, so the grant most likely to be wasted is the
+     * one that gets used.
+     */
+    public function slotForNewFarm(int $farmerId): ?int
+    {
+        if ($this->ownedFarmCount($farmerId) < $this->freeLimit()) {
+            return null;
+        }
+
+        $slots = $this->packageSlots($farmerId);
+
+        if ($slots === []) {
+            return null;
+        }
+
+        $live = FarmSubscription::where('farmer_id', $farmerId)
+            ->active()
+            ->orderBy('expires_at')
+            ->pluck('id');
+
+        foreach ($live as $id) {
+            if (($slots[$id] ?? 0) > 0) {
+                return (int) $id;
+            }
+        }
+
+        return null;
+    }
+
+    /** Does this farmer hold any package that has not run out? */
+    public function hasLivePackage(int $farmerId): bool
+    {
+        return FarmSubscription::where('farmer_id', $farmerId)->active()->exists();
     }
 
     /**
@@ -115,14 +201,12 @@ class SubscriptionService
     /**
      * May this farmer create another farm?
      *
-     * One question now: are they under their allowance. A live subscription no
-     * longer means "as many as you like" — it means the farms that package was
-     * sold with, added to the free allowance and to any other package they
-     * hold.
+     * Either they are still inside the free allowance, or one of their live
+     * packages has a creation slot left on it.
      */
     public function canCreateFarm(int $farmerId): bool
     {
-        return $this->ownedFarmCount($farmerId) < $this->farmAllowance($farmerId);
+        return $this->remainingFarms($farmerId) > 0;
     }
 
     /**
@@ -133,38 +217,41 @@ class SubscriptionService
      */
     public function refusalMessage(int $farmerId): string
     {
-        $allowance = $this->farmAllowance($farmerId);
-        $owned     = $this->ownedFarmCount($farmerId);
-        $bought    = $this->purchasedFarmLimit($farmerId);
-        $latest    = $this->latestFor($farmerId);
+        $owned  = $this->ownedFarmCount($farmerId);
+        $latest = $this->latestFor($farmerId);
 
-        $held = "You have {$owned} of {$allowance} "
-              . ($allowance === 1 ? 'farm' : 'farms') . '.';
+        $held = 'You have ' . $owned . ' ' . ($owned === 1 ? 'farm' : 'farms') . '.';
 
-        // Already paying: another package is what adds farms, not a renewal —
-        // renewing only keeps the ones they have.
-        if ($bought > 0) {
-            return "{$held} Add another package to create more farms. "
-                 . 'Your existing farms are unaffected.';
+        // Holding a package whose farms are all used. Saying so matters: the
+        // farmer has just paid and must not read this as the payment failing.
+        if ($this->hasLivePackage($farmerId)) {
+            return "{$held} Every farm your current package allows is already "
+                 . 'created. Take another package to add more — the farms you '
+                 . 'have keep working.';
         }
 
         // Paid before and let it lapse. The date matters: "your plan ended on
         // the 3rd" is far more use than "you need a plan".
         if ($latest && $latest->is_expired) {
-            return "{$held} Your package ended on {$latest->expires_at->format('d M Y')}. "
-                 . 'Renew it to add more farms. Your existing farms are unaffected.';
+            return "{$held} Your package ended on {$latest->expires_at->format('d M Y')}, "
+                 . 'so your paid farms are read-only. Take a package to use them '
+                 . 'again, and to add more.';
         }
 
         return "{$held} Subscribe to add more.";
     }
 
     /**
-     * Farm ids this farmer may still CHANGE, oldest first up to their allowance.
+     * Farm ids this farmer may still CHANGE.
      *
-     * A lapsed package drops the allowance back to the free limit, so the
-     * farms it paid for stop being editable rather than disappearing. Oldest
-     * first because the free allowance is the farms they had before they ever
-     * paid: those must keep working whatever happens to a subscription.
+     * The free allowance — their oldest farms — always. Everything else only
+     * while they hold a live package, ANY live package: one sold with no farms
+     * at all keeps the farms they have usable, which is the whole reason to
+     * sell one.
+     *
+     * Oldest first for the free set, because those are the farms they had
+     * before they ever paid and nothing about a subscription may take them
+     * away.
      */
     public function writableFarmIds(int $farmerId): array
     {
@@ -172,18 +259,23 @@ class SubscriptionService
             return $this->writableCache[$farmerId];
         }
 
-        $allowance = $this->farmAllowance($farmerId);
+        $live = $this->hasLivePackage($farmerId);
+        $free = $this->freeLimit();
 
-        $ids = $allowance < 1
-            ? []
-            : Farm::where('farmer_id', $farmerId)
-                ->orderBy('id')
-                ->limit($allowance)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+        if (!$live && $free < 1) {
+            return $this->writableCache[$farmerId] = [];
+        }
 
-        return $this->writableCache[$farmerId] = $ids;
+        $query = Farm::where('farmer_id', $farmerId)->orderBy('id');
+
+        if (!$live) {
+            $query->limit($free);
+        }
+
+        return $this->writableCache[$farmerId] = $query
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     /** The farms that have gone read-only, for the app to mark. */
@@ -263,11 +355,15 @@ class SubscriptionService
      */
     public function statusFor(int $farmerId): array
     {
+        // Through the same methods the create endpoint uses. This block used
+        // to recompute the answer inline, so changing the rule in one place
+        // left the app being told something the server would not have done.
         $owned     = $this->ownedFarmCount($farmerId);
         $free      = $this->freeLimit();
         $bought    = $this->purchasedFarmLimit($farmerId);
-        $allowance = $free + $bought;
-        $canCreate = $owned < $allowance;
+        $remaining = $this->remainingFarms($farmerId);
+        $allowance = $owned + $remaining;
+        $canCreate = $this->canCreateFarm($farmerId);
 
         $activePlans  = $this->activePlansFor($farmerId);
         $subscription = $activePlans->first() ?: $this->latestFor($farmerId);
@@ -278,7 +374,7 @@ class SubscriptionService
             // What packages add on top of the free allowance, and the total.
             'purchased_farms' => $bought,
             'farm_allowance' => $allowance,
-            'farms_remaining' => max(0, $allowance - $owned),
+            'farms_remaining' => $remaining,
 
             // Kept for older app builds, which read these two names.
             'free_remaining' => max(0, $free - $owned),
@@ -306,6 +402,13 @@ class SubscriptionService
             // Which of their farms have gone read-only, so the app can
             // mark them without asking per farm.
             'locked_farm_ids' => $this->lockedFarmIds($farmerId),
+
+            // True whenever ANY package is live, including a zero-farm one.
+            // This, not the farm count, is what unlocks existing farms.
+            'has_live_package' => $this->hasLivePackage($farmerId),
+
+            // Creation slots left on live packages, free allowance aside.
+            'package_slots_remaining' => $this->unspentPackageSlots($farmerId),
 
             'plans' => $this->plans(),
         ];

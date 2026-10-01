@@ -92,7 +92,9 @@ class SubscriptionPlanController extends Controller
         $data = $request->validate([
             'label'      => ['required', 'string', 'max:80'],
             'months'     => ['required', 'integer', 'min:1', 'max:120'],
-            'farm_limit' => ['required', 'integer', 'min:1', 'max:500'],
+            // Zero is allowed: an access-only package, sold to keep a
+            // lapsed farmer's existing farms usable without adding more.
+            'farm_limit' => ['required', 'integer', 'min:0', 'max:500'],
             'amount'     => ['required', 'numeric', 'min:0', 'max:9999999'],
             // Days before expiry to warn, typed as "30,15,7". Optional — the
             // model falls back to a sensible set for the plan's length.
@@ -100,7 +102,7 @@ class SubscriptionPlanController extends Controller
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:9999'],
             'is_active'  => ['nullable', 'boolean'],
         ], [
-            'farm_limit.required' => 'Say how many farms this package allows.',
+            'farm_limit.required' => 'Say how many farms this package allows (0 for access only).',
             'months.required'     => 'Say how many months this package runs for.',
         ]);
 

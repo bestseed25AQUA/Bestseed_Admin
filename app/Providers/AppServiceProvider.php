@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Database\ResilientMySqlConnection;
+use App\Models\Farm;
+use App\Observers\FarmObserver;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -35,5 +37,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // Fix for older MySQL versions
         Schema::defaultStringLength(191);
+
+        Farm::observe(FarmObserver::class);
     }
 }

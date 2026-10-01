@@ -17,14 +17,14 @@
 
     <div class="col-md-3 form-group">
         <label for="farm_limit">Farms allowed <span class="text-danger">*</span></label>
-        <input type="number" min="1" max="500" class="form-control" id="farm_limit" name="farm_limit" required
+        <input type="number" min="0" max="500" class="form-control" id="farm_limit" name="farm_limit" required
                value="{{ old('farm_limit', $plan->farm_limit) }}">
         {{-- Stated plainly, because "allowed" could be read as a cap rather
              than a grant — and it is the one number this whole feature turns on. --}}
         <small class="text-muted">
-            Added to the farmer's free allowance
-            ({{ config('subscriptions.free_farm_limit', 2) }}) and to any other
-            package they hold.
+            How many NEW farms this package lets them create while it runs.
+            Enter <strong>0</strong> for an access-only package: it makes the
+            farms they already have usable again without adding more.
         </small>
     </div>
 

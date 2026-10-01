@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
+use App\Models\FarmAccessMember;
 use App\Models\Farmer;
 use App\Models\Manager;
 use Illuminate\Http\Request;
@@ -107,7 +108,11 @@ class FarmTeamController extends Controller
                     $farmer->forceFill(['first_name' => $person['name']])->save();
                 }
 
-                Manager::create($this->payloadFor($request, $person));
+                $this->syncAccess(
+                    Manager::create($this->payloadFor($request, $person)),
+                    $farmer
+                );
+
                 $added[] = $phone;
             }
         } catch (\Exception $e) {
@@ -211,6 +216,11 @@ class FarmTeamController extends Controller
         try {
             $member->update($this->payload($request));
 
+            $this->syncAccess(
+                $member->fresh(),
+                Farmer::firstOrCreate(['mobile' => $member->phone], ['role' => 'farmer'])
+            );
+
             return redirect()->route('farm-management.team.index')
                 ->with('success', 'Access updated successfully.');
         } catch (\Exception $e) {
@@ -233,6 +243,7 @@ class FarmTeamController extends Controller
         $member = Manager::findOrFail($id);
 
         try {
+            $this->revokeAccess($member);
             $member->delete();
 
             return redirect()->route('farm-management.team.index')
@@ -344,6 +355,58 @@ class FarmTeamController extends Controller
      *
      * @param  array{phone: string, name: string}  $person
      */
+    /**
+     * Mirror this row into `farm_access_members`, which is what actually
+     * opens a farm in the app.
+     *
+     * The `managers` table is an address book; nothing reads it when deciding
+     * whether a farmer may see a farm. Access added here was invisible to both
+     * the manager and the owner until this write existed.
+     */
+    private function syncAccess(Manager $member, Farmer $farmer): void
+    {
+        $farm = Farm::find($member->farm_id);
+
+        // The owner already has everything and holds no membership row.
+        if (!$farm || (int) $farm->farmer_id === (int) $farmer->id) {
+            return;
+        }
+
+        FarmAccessMember::updateOrCreate(
+            ['farm_id' => $member->farm_id, 'farmer_id' => $farmer->id],
+            [
+                'manager_id'         => $member->id,
+                // The owner's id, not the admin's: this column points at
+                // farmers, and the admin is acting for the owner.
+                'granted_by'         => $farm->farmer_id,
+                'role'               => $member->is_partner ? 'partner' : 'manager',
+                'display_name'       => $member->name,
+                'view_access'        => (int) $member->view_access,
+                'edit_access'        => (int) $member->edit_access,
+                'tank_status_access' => (int) $member->tank_status_access,
+                'total_feed_access'  => (int) $member->total_feed_access,
+                'create_access'      => (int) $member->create_access,
+                'delete_access'      => (int) $member->delete_access,
+                'expires_at'         => null,
+                'revoked_at'         => null,
+            ]
+        );
+    }
+
+    /** Take the access away when the address-book row goes. */
+    private function revokeAccess(Manager $member): void
+    {
+        $farmer = Farmer::where('mobile', $member->phone)->first();
+
+        if (!$farmer) {
+            return;
+        }
+
+        FarmAccessMember::where('farm_id', $member->farm_id)
+            ->where('farmer_id', $farmer->id)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now()]);
+    }
     private function payloadFor(Request $request, array $person): array
     {
         $name = $person['name'];

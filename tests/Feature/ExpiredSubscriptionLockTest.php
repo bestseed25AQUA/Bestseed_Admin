@@ -252,6 +252,24 @@ class ExpiredSubscriptionLockTest extends TestCase
         $this->assertNotSame(403, $tanks->status(), 'A locked farm must stay readable.');
     }
 
+    public function test_the_history_is_still_readable_on_a_locked_farm(): void
+    {
+        $owner = $this->makeFarmer();
+        [, , $third] = $this->makeFarms($owner, 3);
+
+        $this->assertTrue(app(SubscriptionService::class)->isFarmLocked($third));
+
+        Sanctum::actingAs($owner);
+
+        $response = $this->getJson("/api/farmer/farm/{$third->id}/activity");
+
+        $this->assertNotSame(
+            403,
+            $response->status(),
+            'Reading the history is a view, like reports — a lapsed package must not hide it.'
+        );
+    }
+
     public function test_sharing_access_to_a_locked_farm_is_refused(): void
     {
         $owner = $this->makeFarmer();
