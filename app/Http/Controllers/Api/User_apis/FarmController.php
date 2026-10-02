@@ -587,6 +587,63 @@ class FarmController extends Controller
         return $member;
     }
 
+    /**
+     * GET /api/farmer/farm-management/intro
+     *
+     * What the Farm Management screen shows around the farm list: the current
+     * announcement, and the demo video for a farmer who has no farms yet.
+     *
+     * One call rather than three. The screen needs all of it before it can
+     * paint, and splitting it is how a screen ends up briefly wrong.
+     */
+    public function farmManagementIntro(Request $request)
+    {
+        $farmerId = (int) $request->user()->id;
+
+        // The announcement for this screen, newest first.
+        //
+        // NOT the shared popup endpoint: that marks each one as shown and never
+        // offers it again. This one is meant to greet the farmer EVERY time
+        // they open the screen, so nothing is recorded and the newest live
+        // announcement always wins.
+        $announcement = \App\Models\Announcement::active()
+            // Farmers are the 'user' audience. Without this an announcement
+            // written for drivers but left on this screen would reach them.
+            ->forAudience('user')
+            ->forScreen('farm_management')
+            ->orderByDesc('id')
+            ->first();
+
+        // Shown only when they have no farms — it is a "how this works" video,
+        // and a farmer already running three farms does not need teaching.
+        $hasFarms = Farm::where('farmer_id', $farmerId)->exists();
+        $videoUrl = trim((string) \App\Models\AppConfig::getValue('farm_demo_video_url', ''));
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'announcement' => $announcement ? [
+                    'id'          => $announcement->id,
+                    'title'       => $announcement->title,
+                    'description' => $announcement->description,
+                    // The accessor, not the raw column: the app needs an
+                    // absolute URL, and `image` holds a storage path.
+                    'image'       => $announcement->image_url,
+                ] : null,
+
+                'demo_video' => (!$hasFarms && $videoUrl !== '') ? [
+                    'url'   => $videoUrl,
+                    'title' => \App\Models\AppConfig::getValue(
+                        'farm_demo_video_title',
+                        'How Farm Management works'
+                    ),
+                ] : null,
+
+                'has_farms' => $hasFarms,
+            ],
+        ]);
+    }
+
     //create farm
      public function createFarm(Request $request)
     {
@@ -602,10 +659,16 @@ class FarmController extends Controller
             // 402 Payment Required, not 403: the app keys the subscription
             // sheet off this exact status, and a plain 403 is already used for
             // "this farm is not yours" in the farm.access middleware.
+            // Asked of the LICENCE service now, not the allowance one.
+            //
+            // Cover is per farm: a free slot, or room on a package the farmer
+            // already holds. A package that is full covers no more farms even
+            // though it is still live, which an allowance total could not say.
             $subscriptions = app(\App\Services\SubscriptionService::class);
+            $licence  = app(\App\Services\FarmLicenceService::class);
             $farmerId = (int) $request->user()->id;
 
-            if (!$subscriptions->canCreateFarm($farmerId)) {
+            if (!$licence->canCreateFarm($farmerId)) {
                 return response()->json([
                     'status'             => false,
                     'needs_subscription' => true,
@@ -766,6 +829,12 @@ class FarmController extends Controller
 
                 if(!empty($farm)){
 
+                    // Attach its cover straight away: a free slot if one is
+                    // left, otherwise room on a package the farmer holds. A
+                    // farm with neither would be locked the moment it was made,
+                    // which is why the guard above refuses before we get here.
+                    $licence->coverNewFarm($farm);
+
                     $this->activity->farmCreated($farm);
 
                     FarmImage::create(['farm_id'=>$farm->id, 'images' => json_encode($imagePaths)]);
@@ -875,7 +944,9 @@ class FarmController extends Controller
             // Resolve every farm's permission in one pass rather than per row.
             $permissions = $this->farmAccess->permissionsForMany($farmer->id, $farms);
 
-            $farms = $farms->map(function ($farm) use ($permissions) {
+            $licence = app(\App\Services\FarmLicenceService::class);
+
+            $farms = $farms->map(function ($farm) use ($permissions, $licence) {
                 $farm->active_tanks    = Tank::where('status', 1)->where('farm_id', $farm->id)->count();
                 $farm->inactive_tanks  = Tank::where('status', 0)->where('farm_id', $farm->id)->count();
 
@@ -902,6 +973,14 @@ class FarmController extends Controller
                 // Lets the app hide edit/delete buttons for a partner who only
                 // holds view access, instead of finding out via a 403.
                 $farm->access = $permissions[$farm->id]->toArray();
+
+                // Whether this farm is closed to new data, and why.
+                //
+                // Per-farm, not per-farmer: one lapsed package locks the farm
+                // it was bought for and leaves the others alone. The app needs
+                // it here so a locked farm reads as locked in the list rather
+                // than only on a 403 the farmer meets after typing a meal in.
+                $farm->licence = $licence->statusFor($farm);
 
                 return $farm;
             });

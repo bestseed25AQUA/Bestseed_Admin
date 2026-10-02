@@ -35,6 +35,7 @@ class AnnouncementController extends Controller
     {
         return view('admin.announcements.create', [
             'audiences' => Announcement::AUDIENCES,
+            'screens'   => Announcement::SCREENS,
         ]);
     }
 
@@ -45,6 +46,11 @@ class AnnouncementController extends Controller
             'description' => 'required|string',
             'image'       => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'audience'    => 'required|in:' . implode(',', array_keys(Announcement::AUDIENCES)),
+            // Which screen it belongs to. Blank is the general popup, and
+            // arrives as null — ConvertEmptyStringsToNull is in the stack — so
+            // the blank key is left out of the list rather than being an empty
+            // item in it.
+            'screen'      => 'nullable|in:' . implode(',', array_filter(array_keys(Announcement::SCREENS))),
             'is_active'   => 'nullable|boolean',
         ]);
 
@@ -86,6 +92,7 @@ class AnnouncementController extends Controller
         return view('admin.announcements.edit', [
             'announcement' => $announcement,
             'audiences'    => Announcement::AUDIENCES,
+            'screens'      => Announcement::SCREENS,
         ]);
     }
 
@@ -95,6 +102,11 @@ class AnnouncementController extends Controller
             'title'       => 'required|string|max:255',
             'description' => 'required|string',
             'audience'    => 'required|in:' . implode(',', array_keys(Announcement::AUDIENCES)),
+            // Which screen it belongs to. Blank is the general popup, and
+            // arrives as null — ConvertEmptyStringsToNull is in the stack — so
+            // the blank key is left out of the list rather than being an empty
+            // item in it.
+            'screen'      => 'nullable|in:' . implode(',', array_filter(array_keys(Announcement::SCREENS))),
             'is_active'   => 'nullable|boolean',
         ];
 

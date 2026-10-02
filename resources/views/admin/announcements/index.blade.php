@@ -68,6 +68,15 @@
                                             ][$announcement->audience] ?? 'bg-secondary';
                                         @endphp
                                         <span class="badge {{ $audienceBadge }}">{{ $announcement->audience_label }}</span>
+                                        {{-- Where it shows, under the audience rather than in a
+                                             column of its own: all but a handful are General, so
+                                             a whole column would be mostly repetition. --}}
+                                        @if ($announcement->screen)
+                                            <span class="badge bg-dark d-block mt-1"
+                                                  title="Pops up every time this screen opens">
+                                                {{ $announcement->screen_label }}
+                                            </span>
+                                        @endif
                                     </td>
                                     <td>{{ $announcement->read_count }}</td>
                                     <td>

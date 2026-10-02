@@ -58,6 +58,14 @@ class AnnouncementController extends Controller
 
         $announcements = Announcement::active()
             ->forAudience($audience)
+            // Screen-targeted announcements are excluded on purpose.
+            //
+            // One aimed at Farm Management is shown by that screen, every time
+            // it opens. Letting it through here as well would greet the farmer
+            // with it on the home screen too, and — worse — this endpoint marks
+            // what it offers as shown, so the farm screen would then have
+            // nothing left to show.
+            ->general()
             ->orderByDesc('id')
             ->get();
 

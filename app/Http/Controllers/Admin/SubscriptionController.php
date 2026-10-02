@@ -7,6 +7,7 @@ use App\Models\Farm;
 use App\Models\Farmer;
 use App\Models\FarmSubscription;
 use App\Models\SubscriptionPlan;
+use App\Models\SubscriptionRequest;
 use Carbon\Carbon;
 use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
@@ -262,6 +263,63 @@ class SubscriptionController extends Controller
         return redirect()
             ->route('subscriptions.index')
             ->with('success', "{$subscription->plan_label} recorded. Active until {$subscription->expires_at->format('d M Y')}.");
+    }
+
+    /**
+     * Requests farmers have left from the app.
+     *
+     * Its own screen rather than a filter on the subscriptions list: these are
+     * not subscriptions, they are people waiting to be sold one, and burying
+     * them behind a dropdown is how a queue goes unworked.
+     */
+    public function requests(Request $request)
+    {
+        $status = $request->input('status', 'open');
+
+        $query = SubscriptionRequest::with(['farmer', 'farm', 'plan']);
+
+        match ($status) {
+            'open'     => $query->open(),
+            'pending'  => $query->pending(),
+            'done'     => $query->where('status', SubscriptionRequest::DONE),
+            'declined' => $query->where('status', SubscriptionRequest::DECLINED),
+            default    => null,
+        };
+
+        return view('admin.subscriptions.requests', [
+            'requests' => $query->orderByRaw("FIELD(status, 'pending','contacted','done','declined')")
+                ->orderByDesc('id')
+                ->paginate(25)
+                ->withQueryString(),
+            'status' => $status,
+            'counts' => [
+                'open'    => SubscriptionRequest::open()->count(),
+                'pending' => SubscriptionRequest::pending()->count(),
+            ],
+        ]);
+    }
+
+    /** Move one request along, with a note of what was done. */
+    public function updateRequest(Request $request, SubscriptionRequest $subscriptionRequest)
+    {
+        $validated = $request->validate([
+            'status'     => ['required', Rule::in([
+                SubscriptionRequest::PENDING,
+                SubscriptionRequest::CONTACTED,
+                SubscriptionRequest::DONE,
+                SubscriptionRequest::DECLINED,
+            ])],
+            'admin_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $subscriptionRequest->update([
+            'status'     => $validated['status'],
+            'admin_note' => $validated['admin_note'] ?? $subscriptionRequest->admin_note,
+            'handled_by' => auth()->id(),
+            'handled_at' => now(),
+        ]);
+
+        return back()->with('success', 'Request updated.');
     }
 
     /**

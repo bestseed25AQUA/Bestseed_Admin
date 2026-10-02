@@ -22,6 +22,12 @@ class Farm extends Model
 
     protected $casts = [
         'status' => 'integer',
+
+        // Licensing — see [FarmLicenceService]. `free_until` is cast so a
+        // comparison against it is a date comparison rather than a string one.
+        'free_until'     => 'date',
+        'legacy_free'    => 'boolean',
+        'took_free_slot' => 'boolean',
     ];
 
     /** Farms an owner or grantee is allowed to open in the app. */
@@ -66,6 +72,17 @@ class Farm extends Model
                   ->withViewAccess()
                   ->live());
         });
+    }
+
+    /**
+     * The package paying for this farm, if one is.
+     *
+     * Null means the farm is on its free period — see `free_until` and
+     * [FarmLicenceService].
+     */
+    public function cover()
+    {
+        return $this->belongsTo(FarmSubscription::class, 'covered_by_subscription_id');
     }
 
     /** Everyone who currently holds access to this farm. */

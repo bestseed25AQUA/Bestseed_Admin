@@ -71,6 +71,170 @@
             @endforeach
         </div>
 
+        @include('admin.partials.flash')
+
+        {{-- ---------------------------------------------------------- Cover --}}
+        {{-- Who is paying for THIS farm, and the fix when nobody is.
+
+             A farm is licensed on its own: inside its free period, or attached
+             to one package. When neither holds it stops accepting new data, and
+             the farmer rings in. This is the screen that answers them, so the
+             renewal happens here rather than a screen away. --}}
+        @php
+            $coverState = $cover['is_locked']
+                ? ['danger', 'Locked', 'fa-lock']
+                : (($cover['days_remaining'] !== null && $cover['days_remaining'] <= 15)
+                    ? ['warning', 'Expiring soon', 'fa-exclamation-triangle']
+                    : ['success', 'Open', 'fa-unlock']);
+        @endphp
+        <div class="card border-{{ $coverState[0] }} mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap">
+                    <div style="min-width:0;">
+                        <h6 class="mb-2">
+                            <i class="fas {{ $coverState[2] }} text-{{ $coverState[0] }} mr-1"></i>
+                            Subscription &amp; Cover
+                            <span class="badge bg-{{ $coverState[0] }} ml-1">{{ $coverState[1] }}</span>
+                        </h6>
+
+                        <div class="text-muted small">
+                            @if ($cover['is_free'])
+                                On the <strong>free plan</strong>.
+                                @if ($cover['never_expires'])
+                                    It does not expire.
+                                @else
+                                    Free until
+                                    <strong>{{ date('d M Y', strtotime($cover['cover_ends_on'])) }}</strong>.
+                                @endif
+                            @else
+                                Covered by
+                                <strong>{{ $coverSubscription->plan_label ?? 'a package' }}</strong>
+                                @if ($coverSubscription)
+                                    (#{{ $coverSubscription->id }},
+                                    {{ $coverSubscription->farm_limit }}
+                                    {{ $coverSubscription->farm_limit === 1 ? 'farm' : 'farms' }})
+                                @endif
+                                @if ($cover['cover_ends_on'])
+                                    until
+                                    <strong>{{ date('d M Y', strtotime($cover['cover_ends_on'])) }}</strong>.
+                                @endif
+                            @endif
+
+                            @if (!$cover['is_locked'] && $cover['days_remaining'] !== null)
+                                <span class="text-{{ $cover['days_remaining'] <= 15 ? 'warning' : 'muted' }}">
+                                    {{ $cover['days_remaining'] }}
+                                    {{ $cover['days_remaining'] === 1 ? 'day' : 'days' }} left.
+                                </span>
+                            @endif
+                        </div>
+
+                        @if ($cover['lock_reason'])
+                            <div class="alert alert-danger py-2 px-3 mt-2 mb-0 small">
+                                {{ $cover['lock_reason'] }}
+                            </div>
+                        @endif
+                    </div>
+
+                    @permission('farm-management.update')
+                        <button class="btn btn-sm btn-{{ $cover['is_locked'] ? 'danger' : 'outline-secondary' }}"
+                                type="button" data-toggle="collapse" data-target="#coverForm">
+                            <i class="fas fa-redo mr-1"></i>
+                            {{ $cover['is_locked'] ? 'Renew this farm' : 'Change cover' }}
+                        </button>
+                    @endpermission
+                </div>
+
+                @permission('farm-management.update')
+                    <div class="collapse {{ $cover['is_locked'] ? 'show' : '' }}" id="coverForm">
+                        <hr>
+                        {{-- Two ways in, one form. The radio picks which of the
+                             two fieldsets the controller reads: an existing
+                             package with a slot free, or a new sale.
+
+                             The existing package is offered FIRST on purpose —
+                             pointing one the farmer already paid for at this
+                             farm costs them nothing, and selling a second
+                             package while a slot sits unused would be taking
+                             money for something they already have. --}}
+                        <form method="POST" action="{{ route('farm-management.farms.cover', $farm->id) }}">
+                            @csrf
+                            <div class="row">
+                                @if ($coverOptions->isNotEmpty())
+                                    <div class="col-md-6 mb-3">
+                                        <div class="custom-control custom-radio mb-2">
+                                            <input type="radio" class="custom-control-input" id="coverModeExisting"
+                                                   name="cover_mode" value="existing" checked>
+                                            <label class="custom-control-label" for="coverModeExisting">
+                                                <strong>Use a package they already hold</strong>
+                                            </label>
+                                        </div>
+                                        <select name="subscription_id" class="form-control form-control-sm"
+                                                data-cover-field="existing">
+                                            @foreach ($coverOptions as $option)
+                                                <option value="{{ $option->id }}">
+                                                    {{ $option->plan_label }} —
+                                                    {{ $option->covered_farms_count }}/{{ $option->farm_limit }} farms used,
+                                                    ends {{ $option->expires_at?->format('d M Y') }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <small class="form-text text-muted">
+                                            Free of charge — these have a slot left.
+                                        </small>
+                                    </div>
+                                @endif
+
+                                <div class="col-md-6 mb-3">
+                                    <div class="custom-control custom-radio mb-2">
+                                        <input type="radio" class="custom-control-input" id="coverModeNew"
+                                               name="cover_mode" value="new"
+                                               {{ $coverOptions->isEmpty() ? 'checked' : '' }}>
+                                        <label class="custom-control-label" for="coverModeNew">
+                                            <strong>Record a new package</strong>
+                                        </label>
+                                    </div>
+                                    <select name="plan_key" class="form-control form-control-sm mb-2"
+                                            data-cover-field="new">
+                                        <option value="">Choose a package…</option>
+                                        @foreach ($coverPlans as $plan)
+                                            <option value="{{ $plan->key }}">{{ $plan->summary }}</option>
+                                        @endforeach
+                                    </select>
+                                    <div class="form-row">
+                                        {{-- Admin picks both dates, because the
+                                             money was taken on a day of its own
+                                             and the term rarely starts the day
+                                             it is typed in. --}}
+                                        <div class="col">
+                                            <label class="small text-muted mb-1">From</label>
+                                            <input type="date" name="starts_at" class="form-control form-control-sm"
+                                                   data-cover-field="new" value="{{ now()->toDateString() }}">
+                                        </div>
+                                        <div class="col">
+                                            <label class="small text-muted mb-1">To</label>
+                                            <input type="date" name="expires_at" class="form-control form-control-sm"
+                                                   data-cover-field="new"
+                                                   placeholder="from the package length">
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Leave <strong>To</strong> empty to use the package's own length.
+                                    </small>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i class="fas fa-check mr-1"></i> Cover this farm
+                            </button>
+                            <small class="text-muted ml-2">
+                                Only this farm. The farmer's other farms are not affected.
+                            </small>
+                        </form>
+                    </div>
+                @endpermission
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -946,4 +1110,40 @@
            force the table wider than the card. */
         .farm-details td { word-break: break-word; }
     </style>
+@endpush
+
+@push('scripts')
+    <script>
+        // Only the chosen half of the cover form is submitted.
+        //
+        // Both fieldsets sit in one form, and the controller reads
+        // subscription_id before plan_key — so with both live, picking "record a
+        // new package" would silently attach the existing one instead. Disabled
+        // inputs are not submitted at all, which is what makes the radio mean
+        // something.
+        (function () {
+            var form = document.getElementById('coverForm');
+
+            if (!form) {
+                return; // No permission to change cover: the form is not rendered.
+            }
+
+            function apply() {
+                var picked = form.querySelector('input[name="cover_mode"]:checked');
+                var mode = picked ? picked.value : 'new';
+
+                form.querySelectorAll('[data-cover-field]').forEach(function (el) {
+                    el.disabled = el.getAttribute('data-cover-field') !== mode;
+                });
+            }
+
+            form.addEventListener('change', function (e) {
+                if (e.target.name === 'cover_mode') {
+                    apply();
+                }
+            });
+
+            apply();
+        })();
+    </script>
 @endpush

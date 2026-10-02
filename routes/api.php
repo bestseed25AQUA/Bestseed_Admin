@@ -309,7 +309,15 @@ Route::prefix('farmer')->group(function () {
         // Asked before the add-farm button opens the form, and again when the
         // Farm Management screen loads so an expiry warning can be shown in
         // place for a farmer who never enabled push notifications.
+        // What the Farm Management screen shows around the list: the current
+        // announcement, and the demo video when the farmer has no farms yet.
+        Route::get('/farm-management/intro', [FarmController::class, 'farmManagementIntro']);
+
         Route::get('/subscription/status', [\App\Http\Controllers\Api\User_apis\SubscriptionController::class, 'status']);
+
+        // Leave a request when nobody answers the phone. Lands in the
+        // Requests tab of the admin subscriptions screen.
+        Route::post('/subscription/request', [\App\Http\Controllers\Api\User_apis\SubscriptionController::class, 'requestSubscription']);
 
         // FCM Token Registration
         Route::post('/register-fcm-token', [UserAuthController::class, 'registerFcmToken']);

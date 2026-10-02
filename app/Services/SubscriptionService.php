@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Farm;
 use App\Models\FarmSubscription;
 use App\Models\SubscriptionPlan;
+use App\Services\FarmLicenceService;
 use Carbon\Carbon;
 
 /**
@@ -244,14 +245,14 @@ class SubscriptionService
     /**
      * Farm ids this farmer may still CHANGE.
      *
-     * The free allowance — their oldest farms — always. Everything else only
-     * while they hold a live package, ANY live package: one sold with no farms
-     * at all keeps the farms they have usable, which is the whole reason to
-     * sell one.
+     * Each farm is judged on ITS OWN cover — the free period it was created
+     * under, or the package pointed at it — rather than on a pool.
      *
-     * Oldest first for the free set, because those are the farms they had
-     * before they ever paid and nothing about a subscription may take them
-     * away.
+     * It used to be "your oldest N farms, plus everything while you hold any
+     * live package". That could not express what is actually sold: a one-farm
+     * package covers one farm, and renewing it must bring back that farm and no
+     * other. Under the old rule a single package unlocked a farmer's entire
+     * estate.
      */
     public function writableFarmIds(int $farmerId): array
     {
@@ -259,20 +260,13 @@ class SubscriptionService
             return $this->writableCache[$farmerId];
         }
 
-        $live = $this->hasLivePackage($farmerId);
-        $free = $this->freeLimit();
+        $licence = app(FarmLicenceService::class);
 
-        if (!$live && $free < 1) {
-            return $this->writableCache[$farmerId] = [];
-        }
-
-        $query = Farm::where('farmer_id', $farmerId)->orderBy('id');
-
-        if (!$live) {
-            $query->limit($free);
-        }
-
-        return $this->writableCache[$farmerId] = $query
+        return $this->writableCache[$farmerId] = Farm::where('farmer_id', $farmerId)
+            ->with('cover')
+            ->orderBy('id')
+            ->get()
+            ->reject(fn (Farm $farm) => $licence->isLocked($farm))
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -299,11 +293,10 @@ class SubscriptionService
      */
     public function isFarmLocked(Farm $farm): bool
     {
-        return !in_array(
-            (int) $farm->id,
-            $this->writableFarmIds((int) $farm->farmer_id),
-            true
-        );
+        // Straight to the licence, not through the writable list: this is asked
+        // once per request by the access middleware, and building every farm's
+        // list to answer about one of them is work for nothing.
+        return app(FarmLicenceService::class)->isLocked($farm);
     }
 
     /**

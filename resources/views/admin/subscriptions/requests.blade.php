@@ -1,0 +1,136 @@
+@extends('admin.layouts.main')
+
+@section('content')
+<div class="content-wrapper">
+    <div class="page-header">
+        <h3 class="page-title d-flex align-items-center">
+            <i class="fas fa-inbox mr-2"></i> Subscription Requests
+        </h3>
+        <a href="{{ route('subscriptions.index') }}" class="btn btn-sm btn-outline-primary float-right">
+            Subscriptions
+        </a>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ route('admin') }}"><i class="fas fa-home mr-1"></i> Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="{{ route('subscriptions.index') }}">Subscriptions</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Requests</li>
+            </ol>
+        </nav>
+    </div>
+
+    @include('admin.partials.flash')
+
+    <p class="text-muted small">
+        Farmers who asked from inside the app instead of ringing. Each one names the farm and
+        package they were looking at, so there is nothing to ask before acting on it.
+    </p>
+
+    <ul class="nav nav-pills mb-3">
+        @foreach (['open' => 'Open', 'pending' => 'Not yet contacted', 'done' => 'Done', 'declined' => 'Declined', 'all' => 'All'] as $key => $label)
+            <li class="nav-item">
+                <a class="nav-link {{ $status === $key ? 'active' : '' }}"
+                   href="{{ route('subscriptions.requests', ['status' => $key]) }}">
+                    {{ $label }}
+                    @if ($key === 'open' && $counts['open'] > 0)
+                        <span class="badge bg-light text-dark ml-1">{{ $counts['open'] }}</span>
+                    @endif
+                </a>
+            </li>
+        @endforeach
+    </ul>
+
+    <div class="card">
+        <div class="card-body">
+            @if ($requests->isEmpty())
+                <p class="text-muted mb-0">Nothing here.</p>
+            @else
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Farmer</th><th>Farm</th><th>Package asked for</th>
+                                <th>Message</th><th>Asked</th><th>Status</th>
+                                <th class="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($requests as $req)
+                                <tr class="{{ $req->row_class }}">
+                                    <td>
+                                        {{ trim(($req->farmer->first_name ?? '') . ' ' . ($req->farmer->last_name ?? '')) ?: 'Farmer #' . $req->farmer_id }}
+                                        <div class="small text-muted">{{ $req->farmer->mobile ?? '' }}</div>
+                                    </td>
+                                    <td>
+                                        @if ($req->farm)
+                                            <a href="{{ route('farm-management.farms.show', $req->farm_id) }}">{{ $req->farm->farm_name }}</a>
+                                        @else
+                                            {{-- No farm named: they are asking for a new one
+                                                 rather than about one they already have. --}}
+                                            <span class="text-muted">A new farm</span>
+                                        @endif
+                                    </td>
+                                    <td>{{ $req->plan_label ?? '—' }}</td>
+                                    <td class="small">{{ $req->message ?: '—' }}</td>
+                                    <td class="small">{{ $req->created_at?->format('d M Y, H:i') }}</td>
+                                    <td>
+                                        @switch($req->status)
+                                            @case('pending')   <span class="badge bg-warning text-dark">Not contacted</span> @break
+                                            @case('contacted') <span class="badge bg-info">Contacted</span> @break
+                                            @case('done')      <span class="badge bg-success">Done</span> @break
+                                            @default           <span class="badge bg-secondary">Declined</span>
+                                        @endswitch
+                                        @if ($req->admin_note)
+                                            <div class="small text-muted mt-1">{{ $req->admin_note }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="text-right text-nowrap">
+                                        {{-- Selling is done on the subscriptions screen; this
+                                             only records what happened to the request, so the
+                                             queue reflects reality. --}}
+                                        <a class="btn btn-sm btn-primary"
+                                           href="{{ route('subscriptions.create', ['farmer' => $req->farmer_id]) }}">
+                                            Sell
+                                        </a>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                                data-toggle="collapse" data-target="#req{{ $req->id }}">
+                                            Update
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr class="collapse" id="req{{ $req->id }}">
+                                    <td colspan="7" class="bg-light">
+                                        <form action="{{ route('subscriptions.requests.update', $req) }}" method="POST">
+                                            @csrf @method('PUT')
+                                            <div class="row align-items-end">
+                                                <div class="col-md-3 form-group mb-2">
+                                                    <label class="small mb-1">Status</label>
+                                                    <select name="status" class="form-control form-control-sm">
+                                                        @foreach (['pending' => 'Not contacted', 'contacted' => 'Contacted', 'done' => 'Done', 'declined' => 'Declined'] as $v => $l)
+                                                            <option value="{{ $v }}" @selected($req->status === $v)>{{ $l }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-7 form-group mb-2">
+                                                    <label class="small mb-1">Note</label>
+                                                    <input type="text" name="admin_note" class="form-control form-control-sm"
+                                                           value="{{ $req->admin_note }}"
+                                                           placeholder="Rang on the 3rd, paying next week…">
+                                                </div>
+                                                <div class="col-md-2 form-group mb-2">
+                                                    <button class="btn btn-sm btn-primary btn-block">Save</button>
+                                                </div>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                {{ $requests->links() }}
+            @endif
+        </div>
+    </div>
+</div>
+@endsection

@@ -141,6 +141,11 @@
                     <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.members') ? 'active' : '' }}">
                         <a class="nav-link" href="{{ route('farm-management.members.index') }}">Who Has Access</a>
                     </li>
+                    @permission('farm-management.update')
+                        <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'farm-management.settings') ? 'active' : '' }}">
+                            <a class="nav-link" href="{{ route('farm-management.settings') }}">Settings</a>
+                        </li>
+                    @endpermission
                 </ul>
             </div>
         </li>
@@ -162,6 +167,12 @@
                     + \App\Models\FarmSubscription::expiringSoon()->count();
             } catch (\Throwable $e) {
                 $subsAlertCount = 0;
+            }
+
+            try {
+                $subsRequestCount = \App\Models\SubscriptionRequest::open()->count();
+            } catch (\Throwable $e) {
+                $subsRequestCount = 0;
             }
         @endphp
         <li class="nav-item {{ $subsActive ? 'active' : '' }}">
@@ -188,6 +199,17 @@
                     @endpermission
                     <li class="nav-item {{ str_starts_with($currentRoute ?? '', 'subscription-plans.') ? 'active' : '' }}">
                         <a class="nav-link" href="{{ route('subscription-plans.index') }}">Packages</a>
+                    </li>
+                    {{-- Requests farmers send from the app when nobody answers
+                         the phone. Counted in the link itself, because an
+                         unanswered request is a sale sitting still. --}}
+                    <li class="nav-item {{ $currentRoute === 'subscriptions.requests' ? 'active' : '' }}">
+                        <a class="nav-link" href="{{ route('subscriptions.requests') }}">
+                            Requests
+                            @if ($subsRequestCount > 0)
+                                <span class="badge bg-danger ml-1">{{ $subsRequestCount }}</span>
+                            @endif
+                        </a>
                     </li>
                 </ul>
             </div>

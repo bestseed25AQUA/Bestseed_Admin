@@ -113,8 +113,9 @@ class FarmManagementController extends Controller
         // form asks for, and it is recorded in the flash message so the reason
         // is visible afterwards rather than being a silent exception.
         $subs    = app(SubscriptionService::class);
+        $licence = app(\App\Services\FarmLicenceService::class);
         $ownerId = (int) $request->input('farmer_id');
-        $allowed = $ownerId > 0 ? $subs->canCreateFarm($ownerId) : true;
+        $allowed = $ownerId > 0 ? $licence->canCreateFarm($ownerId) : true;
 
         if (!$allowed && !$request->boolean('override_allowance')) {
             return redirect()->back()->withInput()->with(
@@ -128,6 +129,13 @@ class FarmManagementController extends Controller
         try {
             // `images` is a file upload, not a farms column.
             $farm = Farm::create(collect($validator->validated())->except(['images', 'feed_used_before'])->all());
+
+            // Cover it, exactly as the app does: a free slot if one is left,
+            // otherwise room on a package the farmer holds. A farm created by
+            // admin with the allowance overridden gets no cover and is locked
+            // until a package is pointed at it — which is correct, and the
+            // farm's own page says so.
+            app(\App\Services\FarmLicenceService::class)->coverNewFarm($farm);
 
             $this->saveImages($request, $farm);
 
@@ -224,6 +232,80 @@ class FarmManagementController extends Controller
                     : null,
             ],
         ]);
+    }
+
+    /**
+     * Point a package at THIS farm.
+     *
+     * The answer to "my farm went read-only": admin records (or picks) a
+     * package and attaches it here. Cover is per farm, so this un-locks this
+     * farm and no other — which is exactly what was sold.
+     */
+    public function cover(Request $request, $id)
+    {
+        $farm = Farm::findOrFail($id);
+
+        $validated = $request->validate([
+            // Either an existing package with room, or a new one to record.
+            'cover_mode'      => ['nullable', 'in:existing,new'],
+            'subscription_id' => ['nullable', 'integer', 'exists:farm_subscriptions,id'],
+            'plan_key'        => ['nullable', 'string', 'exists:subscription_plans,key'],
+            'starts_at'       => ['nullable', 'date'],
+            'expires_at'      => ['nullable', 'date'],
+        ]);
+
+        // The form's radio, honoured here as well as in the browser.
+        //
+        // Both halves of the form sit in one <form> and the JS disables the one
+        // not chosen. Should that script ever fail to run, both would arrive and
+        // the existing-package branch below — tested first — would quietly
+        // attach a package the admin had not chosen. Reading the radio makes the
+        // choice mean the same thing on both sides.
+        $mode = $validated['cover_mode'] ?? null;
+
+        if ($mode === 'new') {
+            $validated['subscription_id'] = null;
+        } elseif ($mode === 'existing') {
+            $validated['plan_key'] = null;
+        }
+
+        $licence = app(\App\Services\FarmLicenceService::class);
+
+        try {
+            if (!empty($validated['subscription_id'])) {
+                $sub = \App\Models\FarmSubscription::findOrFail($validated['subscription_id']);
+
+                // A package belonging to somebody else must never cover this
+                // farm — it would read as paid while the money came from
+                // another farmer.
+                if ((int) $sub->farmer_id !== (int) $farm->farmer_id) {
+                    return back()->with('error', 'That package belongs to a different farmer.');
+                }
+            } elseif (!empty($validated['plan_key'])) {
+                $sub = app(SubscriptionService::class)->subscribe(
+                    farmerId:  (int) $farm->farmer_id,
+                    planKey:   $validated['plan_key'],
+                    startsAt:  $validated['starts_at'] ?? null,
+                    notes:     'Recorded for farm: ' . $farm->farm_name,
+                    createdBy: auth()->id(),
+                    expiresAt: $validated['expires_at'] ?? null,
+                );
+            } else {
+                return back()->with('error', 'Choose a package to cover this farm with.');
+            }
+
+            $licence->attach($farm, $sub);
+        } catch (\Throwable $e) {
+            Log::error('Could not cover farm', ['farm_id' => $farm->id, 'error' => $e->getMessage()]);
+
+            return back()->with('error', 'Could not cover this farm: ' . $e->getMessage());
+        }
+
+        return back()->with(
+            'success',
+            $farm->farm_name . ' is now covered by ' . $sub->plan_label
+            . ' until ' . $sub->expires_at->format('d M Y') . '.'
+        );
     }
 
     public function show($id)
@@ -326,9 +408,33 @@ class FarmManagementController extends Controller
             ->limit(500)
             ->get();
 
+        // What is paying for this farm, and what to offer if nothing is.
+        //
+        // This is the page an admin lands on when a farmer rings to say their
+        // farm has stopped accepting data, so the answer and the fix both
+        // belong here rather than a screen away.
+        $licence = app(\App\Services\FarmLicenceService::class);
+
+        $cover = $licence->statusFor($farm);
+
+        // Packages this farmer already holds that still have a free slot —
+        // offered first, because pointing an existing package at the farm costs
+        // the farmer nothing and selling them a second one would be wrong.
+        $coverOptions = $licence->subscriptionsWithRoom((int) $farm->farmer_id)
+            // Not the one already covering this farm.
+            ->reject(fn ($s) => (int) $s->id === (int) $farm->covered_by_subscription_id)
+            ->values();
+
+        $coverPlans = \App\Models\SubscriptionPlan::active()->ordered()->get();
+
+        $coverSubscription = $farm->covered_by_subscription_id
+            ? \App\Models\FarmSubscription::find($farm->covered_by_subscription_id)
+            : null;
+
         return view('admin.farm-management.farms.show', compact(
             'farm', 'tanks', 'deletedTanks', 'todayFeed', 'team', 'totalFeedUsed',
-            'members', 'farmers', 'activity', 'activityWindow'
+            'members', 'farmers', 'activity', 'activityWindow',
+            'cover', 'coverOptions', 'coverPlans', 'coverSubscription'
         ));
     }
 

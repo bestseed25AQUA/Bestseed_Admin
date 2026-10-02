@@ -141,9 +141,15 @@
                                         <option value="farm_management_icon"
                                             {{ old('screen', $banner->screen ?? '') == 'farm_management_icon' ? 'selected' : '' }}>Farm Management
                                             Icon</option>
-                                        <option value="farm_management_banner"
-                                            {{ old('screen', $banner->screen ?? '') == 'farm_management_banner' ? 'selected' : '' }}>Farm Management
-                                            Banner</option>
+                                        {{-- Retired — see the note in create.blade.php. Still
+                                             listed for a banner already set to it, because
+                                             dropping the option outright would leave this select
+                                             with nothing chosen and quietly move the banner to
+                                             whichever screen happened to be first on save. --}}
+                                        @if (old('screen', $banner->screen ?? '') == 'farm_management_banner')
+                                            <option value="farm_management_banner" selected>Farm Management
+                                                Banner (retired — use an Announcement)</option>
+                                        @endif
                                         <option value="home_section1_bg"
                                             {{ old('screen', $banner->screen ?? '') == 'home_section1_bg' ? 'selected' : '' }}>HomeScreen
                                             Section1 Background</option>

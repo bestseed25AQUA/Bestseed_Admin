@@ -54,6 +54,32 @@
                             </div>
 
                             <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Show On</label>
+                                    <select name="screen"
+                                        class="form-control @error('screen') is-invalid @enderror">
+                                        @foreach ($screens as $value => $label)
+                                            <option value="{{ $value }}"
+                                                {{ (string) old('screen', '') === (string) $value ? 'selected' : '' }}>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('screen')
+                                        <span class="invalid-feedback d-block"><strong>{{ $message }}</strong></span>
+                                    @enderror
+                                    {{-- Said here rather than left to be discovered: the two
+                                         behave differently. A general announcement pops once and
+                                         then waits in Profile; a screen one greets the farmer
+                                         every time that screen opens, and the newest wins. --}}
+                                    <small class="form-text text-muted">
+                                        <strong>General</strong> pops up once, then stays in the
+                                        app's announcements list.
+                                        <strong>Farm Management</strong> pops up each time the
+                                        farmer opens that screen — the newest one only.
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
                                 <div class="col-md-12">
                                     <label class="form-label">Description <span class="text-danger">*</span></label>
                                     <textarea name="description" rows="5" class="form-control @error('description') is-invalid @enderror"

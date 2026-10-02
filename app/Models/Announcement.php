@@ -32,9 +32,45 @@ class Announcement extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * Screens an announcement can be aimed at, keyed by the stored value.
+     *
+     * An empty key is the default: shown in the app's general announcement
+     * popup rather than on one screen. `farm_management` replaced the farm
+     * management BANNER — a banner is scenery, and a seasonal notice about
+     * stocking dates was being scrolled past. It is now a popup the farmer
+     * sees each time the screen opens.
+     */
+    public const SCREENS = [
+        ''                => 'General (announcements popup)',
+        'farm_management' => 'Farm Management',
+    ];
+
     public function scopeForAudience($query, string $audience)
     {
         return $query->where('audience', $audience);
+    }
+
+    /**
+     * Announcements aimed at one screen.
+     *
+     * The general popup must NOT pick these up, or a farm-management notice
+     * would greet the farmer on the home screen as well.
+     */
+    public function scopeForScreen($query, string $screen)
+    {
+        return $query->where('screen', $screen);
+    }
+
+    /** Announcements with no screen of their own — the general popup. */
+    public function scopeGeneral($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('screen')->orWhere('screen', ''));
+    }
+
+    public function getScreenLabelAttribute(): string
+    {
+        return self::SCREENS[(string) $this->screen] ?? ucfirst((string) $this->screen);
     }
 
     public function getAudienceLabelAttribute(): string

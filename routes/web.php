@@ -190,6 +190,13 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::post('admin/subscriptions/{subscription}/renew', [\App\Http\Controllers\Admin\SubscriptionController::class, 'renew'])
         ->name('subscriptions.renew');
 
+    // Requests left from the app. Before the subscriptions resource, or
+    // "requests" is read as a subscription id.
+    Route::get('admin/subscription-requests', [\App\Http\Controllers\Admin\SubscriptionController::class, 'requests'])
+        ->name('subscriptions.requests');
+    Route::put('admin/subscription-requests/{subscriptionRequest}', [\App\Http\Controllers\Admin\SubscriptionController::class, 'updateRequest'])
+        ->name('subscriptions.requests.update');
+
     Route::get('admin/subscriptions/lookup', [\App\Http\Controllers\Admin\SubscriptionController::class, 'lookupFarmer'])
         ->name('subscriptions.lookup');
     Route::post('admin/subscriptions/{subscription}/cancel', [\App\Http\Controllers\Admin\SubscriptionController::class, 'cancel'])
@@ -198,6 +205,13 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
         ->parameters(['subscriptions' => 'subscription']);
 
     // Farm Management — farms and their teams.
+    // The free plan and the demo video. Before the farms routes so neither
+    // captures the other's paths.
+    Route::get('admin/farm-management/settings', [\App\Http\Controllers\Admin\FarmSettingsController::class, 'edit'])
+        ->name('farm-management.settings');
+    Route::put('admin/farm-management/settings', [\App\Http\Controllers\Admin\FarmSettingsController::class, 'update'])
+        ->name('farm-management.settings.update');
+
     Route::get('admin/farm-management/farms', [FarmManagementController::class, 'index'])->name('farm-management.farms.index');
     Route::get('admin/farm-management/farms/create', [FarmManagementController::class, 'create'])->name('farm-management.farms.create');
 
@@ -210,6 +224,9 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::put('admin/farm-management/farms/{farm}', [FarmManagementController::class, 'update'])->name('farm-management.farms.update');
     Route::delete('admin/farm-management/farms/{farm}', [FarmManagementController::class, 'destroy'])->name('farm-management.farms.destroy');
     Route::post('admin/farm-management/farms/{farm}/toggle-status', [FarmManagementController::class, 'toggleStatus'])->name('farm-management.farms.toggle-status');
+
+    // Point a package at one farm — what un-locks a farm whose cover lapsed.
+    Route::post('admin/farm-management/farms/{farm}/cover', [FarmManagementController::class, 'cover'])->name('farm-management.farms.cover');
     Route::post('admin/farm-management/farms/{farm}/restore', [FarmManagementController::class, 'restore'])->name('farm-management.farms.restore');
     Route::delete('admin/farm-management/farms/{farm}/force', [FarmManagementController::class, 'forceDestroy'])->name('farm-management.farms.force-destroy');
 

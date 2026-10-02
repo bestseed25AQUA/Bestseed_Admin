@@ -103,8 +103,11 @@
                                             Icon</option>
                                         <option value="farm_management_icon" {{ old('screen') == 'farm_management_icon' ? 'selected' : '' }}>Farm Management
                                             Icon</option>
-                                        <option value="farm_management_banner" {{ old('screen') == 'farm_management_banner' ? 'selected' : '' }}>Farm Management
-                                            Banner</option>
+                                        {{-- Farm Management Banner was retired. That notice is an
+                                             ANNOUNCEMENT now: a banner is scenery and was being
+                                             scrolled past, so it pops up instead, every time the
+                                             screen opens. Add it under Announcements, with
+                                             "Show On" set to Farm Management. --}}
                                         <option value="home_section1_bg" {{ old('screen') == 'home_section1_bg' ? 'selected' : '' }}>HomeScreen
                                             Section1 Background</option>
                                         {{-- <option value="price" {{ old('screen') == 'price' ? 'selected' : '' }}>Price

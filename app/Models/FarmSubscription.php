@@ -46,6 +46,18 @@ class FarmSubscription extends Model
         return $this->belongsTo(Farmer::class, 'farmer_id');
     }
 
+    /**
+     * The farms this package is paying for.
+     *
+     * A package covering three farms can be attached to three; each one is
+     * named explicitly rather than drawn from a pool, so renewing brings back
+     * exactly the farms it was bought for.
+     */
+    public function coveredFarms()
+    {
+        return $this->hasMany(Farm::class, 'covered_by_subscription_id');
+    }
+
     /** The package this was sold from. Null on rows predating the catalogue. */
     public function plan()
     {
