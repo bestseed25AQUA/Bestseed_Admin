@@ -86,7 +86,7 @@ return new class extends Migration
 
             // How long those free farms last, in months. 0 = never expires,
             // which is what every existing farm was created under.
-            ['farm_free_months', '0'],
+            ['farm_free_months', '3'],
 
             // Shown on the farm management screen when the farmer has no farms
             // yet. Blank hides it.

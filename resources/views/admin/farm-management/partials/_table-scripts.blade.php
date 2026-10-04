@@ -24,7 +24,16 @@
                     lengthMenu: "Show _MENU_ entries",
                     info: "Showing _START_ to _END_ of _TOTAL_ entries",
                     infoEmpty: "No entries found",
-                    emptyTable: "No {{ $entity ?? 'records' }} found",
+                    // A page may supply a richer empty state — an icon, a
+                    // heading, a line of explanation — in a hidden
+                    // #table-empty-state element. It has to come through here
+                    // rather than as a <tr> in the markup: DataTables counts
+                    // the cells in every row against the headers, so a single
+                    // <td colspan> row makes it abort with "Incorrect column
+                    // count". DataTables builds the colspan cell itself.
+                    emptyTable: $('#table-empty-state').length
+                        ? $('#table-empty-state').html()
+                        : "No {{ $entity ?? 'records' }} found",
                     paginate: { first: "<<", last: ">>", next: ">", previous: "<" }
                 },
                 columnDefs: [{ targets: -1, orderable: false, className: 'text-center' }],

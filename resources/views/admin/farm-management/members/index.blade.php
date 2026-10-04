@@ -62,10 +62,77 @@
         <div class="card">
             <div class="card-body">
                 @if ($members->isEmpty())
-                    <p class="text-muted mb-0">
-                        Nobody holds farm access matching this filter. Give access from a farm's
-                        <strong>Who Has Access</strong> tab.
-                    </p>
+                    {{-- Empty state.
+                         "Revoked" being empty is good news; "live" being empty
+                         while revoked rows exist means every grant has been
+                         taken back, which is worth saying plainly rather than
+                         reporting as the same nothing. --}}
+                    @php
+                        $noMembersAtAll = ($totalMembers ?? 0) === 0;
+                        $statusFilter   = request()->input('status');
+                        $isFiltered     = request()->filled('farm_id') || request()->filled('role');
+
+                        $empty = $noMembersAtAll
+                            ? [
+                                'icon'  => 'fa-user-friends',
+                                'tone'  => 'secondary',
+                                'title' => 'Nobody has farm access yet',
+                                'body'  => 'Owners work their own farms alone until they share them. '
+                                         . 'Give access from a farm\'s Who Has Access tab, or let the '
+                                         . 'farmer add a manager or partner from the app.',
+                            ]
+                            : ($isFiltered
+                                ? [
+                                    'icon'  => 'fa-filter',
+                                    'tone'  => 'secondary',
+                                    'title' => 'Nobody matches this filter',
+                                    'body'  => 'No manager or partner matches the farm and role you '
+                                             . 'picked.',
+                                ]
+                                : match ($statusFilter) {
+                                    'revoked' => [
+                                        'icon'  => 'fa-check-circle',
+                                        'tone'  => 'success',
+                                        'title' => 'Nothing revoked',
+                                        'body'  => 'No access has been taken back. Revoked grants are '
+                                                 . 'kept here as a record of who had access and when.',
+                                    ],
+                                    'live' => [
+                                        'icon'  => 'fa-user-slash',
+                                        'tone'  => 'warning',
+                                        'title' => 'No live access',
+                                        'body'  => 'Every grant has been revoked, so no manager or '
+                                                 . 'partner can open a farm right now.',
+                                    ],
+                                    default => [
+                                        'icon'  => 'fa-filter',
+                                        'tone'  => 'secondary',
+                                        'title' => 'Nobody matches this filter',
+                                        'body'  => 'Try clearing the filters above.',
+                                    ],
+                                });
+                    @endphp
+
+                    <div class="text-center py-5">
+                        <div class="mx-auto mb-3 d-flex align-items-center justify-content-center
+                                    rounded-circle bg-light"
+                             style="width:84px; height:84px;">
+                            <i class="fas {{ $empty['icon'] }} fa-2x text-{{ $empty['tone'] }}"></i>
+                        </div>
+
+                        <h5 class="mb-2">{{ $empty['title'] }}</h5>
+
+                        <p class="text-muted mb-0 mx-auto" style="max-width:480px;">
+                            {{ $empty['body'] }}
+                        </p>
+
+                        @if (!$noMembersAtAll)
+                            <a href="{{ route('farm-management.members.index') }}"
+                               class="btn btn-sm btn-outline-primary mt-3">
+                                Show everyone
+                            </a>
+                        @endif
+                    </div>
                 @else
                     <div class="table-responsive">
                         <table class="table table-hover">

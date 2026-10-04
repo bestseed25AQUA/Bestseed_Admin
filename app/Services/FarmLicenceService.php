@@ -22,7 +22,7 @@ use Carbon\Carbon;
  *
  * Both free settings are admin's to choose:
  *   farm_free_count   how many farms come without paying (0 is allowed)
- *   farm_free_months  how long they last; 0 means never
+ *   farm_free_months  how long they last; 0 means never. Defaults to 3.
  */
 class FarmLicenceService
 {
@@ -35,7 +35,7 @@ class FarmLicenceService
     /** How long a free farm lasts, in months. 0 = never expires. */
     public function freeMonths(): int
     {
-        return max(0, (int) AppConfig::getValue('farm_free_months', 0));
+        return max(0, (int) AppConfig::getValue('farm_free_months', 3));
     }
 
     /**
@@ -184,15 +184,23 @@ class FarmLicenceService
             return false;
         }
 
-        // A free farm with a term. NULL here is NOT "for ever": it is a farm
-        // nothing ever covered — an admin ticking "Create anyway" past the
-        // farmer's allowance — and that farm is locked until a package is
-        // pointed at it.
-        if ($farm->free_until === null) {
-            return true;
+        // A free period with an end date: locked once that date has passed.
+        if ($farm->free_until !== null) {
+            return Carbon::parse($farm->free_until)->startOfDay()->lessThan(Carbon::today());
         }
 
-        return Carbon::parse($farm->free_until)->startOfDay()->lessThan(Carbon::today());
+        // No end date, and that means one of two opposite things:
+        //
+        //   took_free_slot = 1  the farm WAS given a free slot, under a free
+        //                       plan set to "Never expires". Open, for ever.
+        //   took_free_slot = 0  nothing ever covered it — an admin ticking
+        //                       "Create anyway" past the farmer's allowance.
+        //                       Locked until a package is pointed at it.
+        //
+        // Reading only `free_until` cannot tell these apart, and treating NULL
+        // as "never covered" locked every farm created while the free plan had
+        // no expiry — which is the default setting.
+        return !$farm->took_free_slot;
     }
 
     /** Why it is locked, in words meant for the farmer. */
@@ -250,9 +258,12 @@ class FarmLicenceService
             'is_free'     => $farm->covered_by_subscription_id === null,
             'cover_ends_on'   => $ends?->toDateString(),
             'days_remaining'  => $ends ? Carbon::today()->diffInDays($ends, false) : null,
-            // Only the grandfathered farms truly never expire. A farm with no
-            // end date because nothing ever covered it is locked, not eternal.
-            'never_expires'   => $ends === null && (bool) $farm->legacy_free,
+            // True for a farm that genuinely has no end date: grandfathered,
+            // or holding a free slot while the free plan has no expiry. NOT
+            // true for one that simply never got cover — that is locked, not
+            // eternal.
+            'never_expires'   => $ends === null
+                && ((bool) $farm->legacy_free || (bool) $farm->took_free_slot),
         ];
     }
 }

@@ -596,6 +596,51 @@ class FarmController extends Controller
      * One call rather than three. The screen needs all of it before it can
      * paint, and splitting it is how a screen ends up briefly wrong.
      */
+    /**
+     * Stream the Farm Management demo video, with byte-range support.
+     *
+     * Deliberately NOT served as a plain file under public/. `php artisan
+     * serve` hands existing files to PHP's built-in web server, which ignores
+     * the Range header and answers every request with the whole file. iOS
+     * sends a 2-byte probe first, gets 171 KB back, decides the server is
+     * broken and refuses to play at all:
+     *
+     *   CoreMediaErrorDomain -12939 — byte range length mismatch
+     *
+     * Laravel's BinaryFileResponse honours Range properly, so going through a
+     * route fixes local playback and costs nothing in production, where it
+     * also gives seeking without waiting for the whole download.
+     *
+     * Public on purpose: a video player fetches the URL on its own and sends
+     * no auth header. Only ever serves the ONE configured file, resolved from
+     * settings rather than from anything the caller supplies.
+     */
+    public function farmDemoVideo()
+    {
+        $stored = trim((string) \App\Models\AppConfig::getValue('farm_demo_video_url', ''));
+
+        // A pasted link is somebody else's to serve.
+        if ($stored === '' || \Illuminate\Support\Str::startsWith($stored, ['http://', 'https://'])) {
+            abort(404);
+        }
+
+        // basename() so a stored value can never walk out of the folder,
+        // however it got written.
+        $path = public_path('uploads/farm/' . basename($stored));
+
+        if (!is_file($path)) {
+            abort(404);
+        }
+
+        return response()->file($path, [
+            'Content-Type'  => 'video/mp4',
+            'Accept-Ranges' => 'bytes',
+            // Re-encoded files are named with a timestamp, so a long cache is
+            // safe — a new upload is a new URL.
+            'Cache-Control' => 'public, max-age=604800',
+        ]);
+    }
+
     public function farmManagementIntro(Request $request)
     {
         $farmerId = (int) $request->user()->id;
@@ -632,7 +677,18 @@ class FarmController extends Controller
                 ] : null,
 
                 'demo_video' => (!$hasFarms && $videoUrl !== '') ? [
-                    'url'   => $videoUrl,
+                    // An uploaded file is stored as a path; a pasted link is
+                    // already absolute. Resolving here, against THIS request,
+                    // means the phone is handed a host it can actually reach —
+                    // which the admin panel's own host would not have been.
+                    // An uploaded file goes through the streaming route, which
+                    // supports Range; a pasted link is used as given.
+                    'url'   => \Illuminate\Support\Str::startsWith($videoUrl, ['http://', 'https://'])
+                        ? $videoUrl
+                        : route('farm.demo-video', ['v' => basename($videoUrl)]),
+                    // Lets the app play a file inline and send a link out to
+                    // the browser, instead of guessing from the extension.
+                    'is_file' => !\Illuminate\Support\Str::startsWith($videoUrl, ['http://', 'https://']),
                     'title' => \App\Models\AppConfig::getValue(
                         'farm_demo_video_title',
                         'How Farm Management works'

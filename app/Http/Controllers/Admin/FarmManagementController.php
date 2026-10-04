@@ -87,7 +87,12 @@ class FarmManagementController extends Controller
 
         $farmers = Farmer::orderBy('first_name')->get();
 
-        return view('admin.farm-management.farms.index', compact('farms', 'farmers'));
+        // Every farm ever, filters ignored and deleted ones counted. Lets an
+        // empty table say whether NO farm exists yet or merely none matches
+        // what is being asked for — two situations wanting opposite advice.
+        $totalFarms = Farm::withTrashed()->count();
+
+        return view('admin.farm-management.farms.index', compact('farms', 'farmers', 'totalFarms'));
     }
 
     public function create()

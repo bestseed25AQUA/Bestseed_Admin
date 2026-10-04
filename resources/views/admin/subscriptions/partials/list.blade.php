@@ -96,14 +96,108 @@
                                     </td>
                                 </tr>
                             @empty
+                                {{-- Empty state.
+                                     Three different situations share this one
+                                     cell, and they call for opposite responses:
+                                     nothing sold yet (record one), a search
+                                     with no hits (clear it), or a filter that
+                                     is empty because everything is healthy —
+                                     no EXPIRED rows is good news, not an
+                                     absence to be fixed. --}}
+                                @php
+                                    $nothingSold = ($totalAll ?? 0) === 0;
+                                    $isSearching = $search !== '';
+
+                                    $empty = $nothingSold
+                                        ? [
+                                            'icon'  => 'fa-id-card',
+                                            'tone'  => 'secondary',
+                                            'title' => 'No subscriptions yet',
+                                            'body'  => 'When a farmer pays for a package, record it '
+                                                     . 'here and it starts covering the farm straight '
+                                                     . 'away.',
+                                        ]
+                                        : ($isSearching
+                                            ? [
+                                                'icon'  => 'fa-search',
+                                                'tone'  => 'secondary',
+                                                'title' => 'Nothing matches that search',
+                                                'body'  => 'No farmer, mobile number or package name '
+                                                         . 'matches what you typed.',
+                                            ]
+                                            : match ($filter) {
+                                                'active' => [
+                                                    'icon'  => 'fa-pause-circle',
+                                                    'tone'  => 'warning',
+                                                    'title' => 'No active subscriptions',
+                                                    'body'  => 'Nobody holds a live package right now, '
+                                                             . 'so every paid farm is locked.',
+                                                ],
+                                                'expiring' => [
+                                                    'icon'  => 'fa-check-circle',
+                                                    'tone'  => 'success',
+                                                    'title' => 'Nothing expiring soon',
+                                                    'body'  => 'No live package is close enough to its '
+                                                             . 'end date to need a renewal call.',
+                                                ],
+                                                'expired' => [
+                                                    'icon'  => 'fa-check-circle',
+                                                    'tone'  => 'success',
+                                                    'title' => 'Nothing has lapsed',
+                                                    'body'  => 'Every package recorded is either still '
+                                                             . 'running or was cancelled on purpose.',
+                                                ],
+                                                'cancelled' => [
+                                                    'icon'  => 'fa-check-circle',
+                                                    'tone'  => 'success',
+                                                    'title' => 'Nothing cancelled',
+                                                    'body'  => 'No subscription has been cancelled.',
+                                                ],
+                                                default => [
+                                                    'icon'  => 'fa-filter',
+                                                    'tone'  => 'secondary',
+                                                    'title' => 'Nothing matches this filter',
+                                                    'body'  => 'Try a different state above.',
+                                                ],
+                                            });
+                                @endphp
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-4">
-                                        No subscriptions
-                                        @if ($filter !== 'all' || $search !== '')
-                                            match this filter.
-                                        @else
-                                            recorded yet.
-                                        @endif
+                                    <td colspan="8" class="py-5">
+                                        <div class="text-center">
+                                            <div class="mx-auto mb-3 d-flex align-items-center
+                                                        justify-content-center rounded-circle bg-light"
+                                                 style="width:84px; height:84px;">
+                                                <i class="fas {{ $empty['icon'] }} fa-2x
+                                                          text-{{ $empty['tone'] }}"></i>
+                                            </div>
+
+                                            <h5 class="mb-2">{{ $empty['title'] }}</h5>
+
+                                            {{-- Narrow on purpose: help text running the
+                                                 full width of an eight-column table is
+                                                 hard to read. --}}
+                                            <p class="text-muted mb-0 mx-auto"
+                                               style="max-width:460px;">
+                                                {{ $empty['body'] }}
+                                            </p>
+
+                                            @if ($nothingSold)
+                                                @permission('subscriptions.create')
+                                                    <a href="{{ route('subscriptions.create') }}"
+                                                       class="btn btn-sm btn-primary mt-3">
+                                                        <i class="fas fa-plus mr-1"></i> Add Subscription
+                                                    </a>
+                                                @endpermission
+                                            @else
+                                                {{-- Only when something is actually being
+                                                     filtered out, so it is never a button
+                                                     that changes nothing. --}}
+                                                <a href="{{ route('subscriptions.index') }}"
+                                                   class="btn btn-sm btn-outline-primary mt-3">
+                                                    Show everything
+                                                </a>
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             @endforelse

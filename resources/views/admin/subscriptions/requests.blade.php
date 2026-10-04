@@ -42,7 +42,85 @@
     <div class="card">
         <div class="card-body">
             @if ($requests->isEmpty())
-                <p class="text-muted mb-0">Nothing here.</p>
+                {{-- Empty state.
+                     Worded per filter, because an empty list means opposite
+                     things depending on which one is showing: no OPEN requests
+                     is good news and needs no action, while no requests AT ALL
+                     usually means the app side is not reaching this screen. A
+                     flat "Nothing here." said neither. --}}
+                @php
+                    $nothingEverAsked = ($counts['total'] ?? 0) === 0;
+
+                    $empty = $nothingEverAsked
+                        ? [
+                            'icon'  => 'fa-inbox',
+                            'tone'  => 'secondary',
+                            'title' => 'No requests yet',
+                            'body'  => 'When a farmer taps "Ask us to call you" on the '
+                                     . 'subscription screen, their request lands here with the '
+                                     . 'farm and package already filled in.',
+                        ]
+                        : match ($status) {
+                            'open' => [
+                                'icon'  => 'fa-check-circle',
+                                'tone'  => 'success',
+                                'title' => 'Nobody is waiting',
+                                'body'  => 'Every request has been dealt with. New ones appear '
+                                         . 'here as soon as a farmer asks from the app.',
+                            ],
+                            'pending' => [
+                                'icon'  => 'fa-phone-volume',
+                                'tone'  => 'success',
+                                'title' => 'Everyone has been contacted',
+                                'body'  => 'No request is still waiting for a first call.',
+                            ],
+                            'done' => [
+                                'icon'  => 'fa-clipboard-check',
+                                'tone'  => 'secondary',
+                                'title' => 'Nothing completed yet',
+                                'body'  => 'Requests you mark as done are kept here as a record '
+                                         . 'of what was sold and when.',
+                            ],
+                            'declined' => [
+                                'icon'  => 'fa-ban',
+                                'tone'  => 'secondary',
+                                'title' => 'Nothing declined',
+                                'body'  => 'Requests you turn down are kept here rather than '
+                                         . 'deleted, so the decision stays on record.',
+                            ],
+                            default => [
+                                'icon'  => 'fa-inbox',
+                                'tone'  => 'secondary',
+                                'title' => 'No requests match this filter',
+                                'body'  => 'Try another tab above.',
+                            ],
+                        };
+                @endphp
+
+                <div class="text-center py-5">
+                    <div class="mx-auto mb-3 d-flex align-items-center justify-content-center
+                                rounded-circle bg-light"
+                         style="width:84px; height:84px;">
+                        <i class="fas {{ $empty['icon'] }} fa-2x text-{{ $empty['tone'] }}"></i>
+                    </div>
+
+                    <h5 class="mb-2">{{ $empty['title'] }}</h5>
+
+                    {{-- Narrow on purpose: a line of help text running the full
+                         width of a desktop table is hard to read. --}}
+                    <p class="text-muted mb-0 mx-auto" style="max-width:460px;">
+                        {{ $empty['body'] }}
+                    </p>
+
+                    {{-- Offered only when another tab actually holds something,
+                         so it is never a link to a second empty page. --}}
+                    @if (!$nothingEverAsked && $status !== 'all')
+                        <a href="{{ route('subscriptions.requests', ['status' => 'all']) }}"
+                           class="btn btn-sm btn-outline-primary mt-3">
+                            See all requests
+                        </a>
+                    @endif
+                </div>
             @else
                 <div class="table-responsive">
                     <table class="table table-hover">

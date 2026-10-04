@@ -47,6 +47,10 @@ class FarmAccessMemberController extends Controller
         return view('admin.farm-management.members.index', [
             'members' => $members,
             'farms'   => Farm::with('farmer')->orderBy('farm_name')->get(),
+            // Same reasoning as the farms list: "nobody has ever been given
+            // access" and "nobody matches this filter" need opposite wording,
+            // and the view cannot tell them apart from $members alone.
+            'totalMembers' => \App\Models\FarmAccessMember::count(),
         ]);
     }
 

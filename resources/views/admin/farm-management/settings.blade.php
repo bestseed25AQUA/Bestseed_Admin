@@ -17,7 +17,8 @@
 
     @include('admin.partials.flash')
 
-    <form action="{{ route('farm-management.settings.update') }}" method="POST">
+    <form action="{{ route('farm-management.settings.update') }}" method="POST"
+          enctype="multipart/form-data">
         @csrf
         @method('PUT')
 
@@ -83,16 +84,74 @@
                 <p class="text-muted small">
                     Shown on the Farm Management screen to a farmer who has <strong>no farms yet</strong>,
                     in place of an empty page. It disappears once they create their first farm.
-                    Leave the link blank to show nothing.
+                    Leave both boxes blank to show nothing.
                 </p>
+
+                @php
+                    // An uploaded file is stored as a path under uploads/farm/;
+                    // anything else is an absolute link somebody pasted.
+                    $isUploaded  = $videoUrl && !Str::startsWith($videoUrl, ['http://', 'https://']);
+                    $previewSrc  = $isUploaded ? asset($videoUrl) : $videoUrl;
+                @endphp
 
                 <div class="row">
                     <div class="col-md-8 form-group">
-                        <label for="farm_demo_video_url">Video link</label>
-                        <input type="url" class="form-control" id="farm_demo_video_url"
-                               name="farm_demo_video_url"
-                               value="{{ old('farm_demo_video_url', $videoUrl) }}"
-                               placeholder="https://www.youtube.com/watch?v=…">
+                        <label for="farm_demo_video_file">
+                            Upload a video <span class="text-muted">(recommended)</span>
+                        </label>
+                        <input type="file" class="form-control-file" id="farm_demo_video_file"
+                               name="farm_demo_video_file"
+                               accept="video/mp4,video/quicktime,video/webm,video/x-m4v">
+                        <small class="form-text text-muted">
+                            {{ strtoupper(implode(', ', \App\Http\Controllers\Admin\FarmSettingsController::VIDEO_MIMES)) }}
+                            &middot; up to <strong>{{ $videoMaxMb }} MB</strong>.
+                            {{-- Said plainly, because the two behave differently
+                                 in the app: a file plays where the farmer is, a
+                                 link throws them out to a browser. --}}
+                            A file plays inside the app; a link opens the browser.
+                        </small>
+
+                        {{-- Checked in the browser as well as on the server.
+                             PHP discards an oversized request before any of our
+                             code runs, so without this the admin waits through a
+                             full upload only to be told it was never going to
+                             work. --}}
+                        <div class="alert alert-danger py-2 px-3 mt-2 d-none small"
+                             id="videoTooLarge"></div>
+
+                        @if ($videoServerCap)
+                            <div class="alert alert-warning py-2 px-3 mt-2 small mb-0">
+                                <i class="fas fa-exclamation-triangle mr-1"></i>
+                                This server caps uploads at <strong>{{ $videoMaxMb }} MB</strong>,
+                                below the {{ \App\Http\Controllers\Admin\FarmSettingsController::VIDEO_MAX_MB }} MB
+                                this screen allows. Raise <code>upload_max_filesize</code> and
+                                <code>post_max_size</code> in
+                                <code>{{ php_ini_loaded_file() ?: 'php.ini' }}</code>
+                                and restart the server to lift it.
+                            </div>
+                        @endif
+
+                        @if ($isUploaded)
+                            <div class="mt-3">
+                                <video src="{{ $previewSrc }}" controls preload="metadata"
+                                       style="max-width:100%; max-height:220px; border-radius:6px;
+                                              background:#000;"></video>
+                                <div class="mt-1">
+                                    <small class="text-muted d-block mb-2">
+                                        Currently uploaded. Choosing a new file replaces it.
+                                    </small>
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" class="custom-control-input"
+                                               id="farm_demo_video_remove"
+                                               name="farm_demo_video_remove" value="1">
+                                        <label class="custom-control-label text-danger"
+                                               for="farm_demo_video_remove">
+                                            Remove this video and show nothing
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     </div>
 
                     <div class="col-md-4 form-group">
@@ -100,6 +159,34 @@
                         <input type="text" class="form-control" id="farm_demo_video_title"
                                name="farm_demo_video_title"
                                value="{{ old('farm_demo_video_title', $videoTitle) }}">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-8 form-group mb-0">
+                        <label for="farm_demo_video_url">
+                            …or paste a link
+                        </label>
+                        <input type="url" class="form-control" id="farm_demo_video_url"
+                               name="farm_demo_video_url"
+                               value="{{ old('farm_demo_video_url', $isUploaded ? '' : $videoUrl) }}"
+                               placeholder="https://www.youtube.com/watch?v=…">
+                        <small class="form-text text-muted">
+                            Uploading a file replaces this, and pasting a link here deletes
+                            any uploaded file. Leave both alone to keep the current video.
+                        </small>
+
+                        @if ($videoUrl && !$isUploaded)
+                            <div class="custom-control custom-checkbox mt-2">
+                                <input type="checkbox" class="custom-control-input"
+                                       id="farm_demo_video_remove"
+                                       name="farm_demo_video_remove" value="1">
+                                <label class="custom-control-label text-danger"
+                                       for="farm_demo_video_remove">
+                                    Remove this video and show nothing
+                                </label>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -111,3 +198,49 @@
     </form>
 </div>
 @endsection
+
+@push('scripts')
+    <script>
+        // Refuse an oversized video before it is uploaded.
+        //
+        // PHP rejects a request over post_max_size without running any of our
+        // code, so a 60 MB file on a 2 MB server produced a raw error page
+        // after a long wait. Catching it here costs the admin nothing and
+        // explains the limit while the file picker is still fresh in mind.
+        (function () {
+            var input = document.getElementById('farm_demo_video_file');
+            var alert = document.getElementById('videoTooLarge');
+
+            if (!input || !alert) {
+                return; // No permission to edit, or the field is not rendered.
+            }
+
+            var maxBytes = {{ (int) $videoMaxBytes }};
+            var maxLabel = '{{ $videoMaxMb }} MB';
+
+            input.addEventListener('change', function () {
+                var file = input.files && input.files[0];
+
+                alert.classList.add('d-none');
+                input.setCustomValidity('');
+
+                if (!file || file.size <= maxBytes) {
+                    return;
+                }
+
+                var mb = (file.size / (1024 * 1024)).toFixed(1);
+
+                alert.textContent =
+                    'That video is ' + mb + ' MB, over the ' + maxLabel + ' limit. ' +
+                    'Compress it first — exporting at 720p usually brings a phone ' +
+                    'recording well under the limit.';
+                alert.classList.remove('d-none');
+
+                // Blocks submit with the browser's own message, so the form
+                // cannot be sent on a file that is certain to be refused.
+                input.setCustomValidity('This video is larger than ' + maxLabel + '.');
+                input.value = '';
+            });
+        })();
+    </script>
+@endpush

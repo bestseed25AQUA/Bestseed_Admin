@@ -670,3 +670,19 @@ Route::get('/fix-835', function () {
     }
     return response()->json(['status' => 'not_found']);
 });
+
+/**
+ * The Farm Management demo video.
+ *
+ * Outside every auth group on purpose: a video player fetches the URL by
+ * itself and sends no bearer token, so anything behind `auth:sanctum` fails
+ * before a frame is decoded. It exposes only the one file named in settings,
+ * which is already shown to any signed-in farmer, so there is nothing here
+ * that authentication would protect.
+ *
+ * See FarmController::farmDemoVideo for why this is a route rather than a
+ * plain file under public/.
+ */
+Route::get('/farm/demo-video', [
+    \App\Http\Controllers\Api\User_apis\FarmController::class, 'farmDemoVideo',
+])->name('farm.demo-video');

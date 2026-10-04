@@ -179,6 +179,87 @@
             </div>
         </div>
     </div>
+
+        {{-- Empty state for the DataTable above.
+             Hidden here and handed to DataTables as `language.emptyTable`,
+             rather than written as a <tr> inside the table. DataTables
+             checks every row's cell count against the headers and aborts
+             with "Incorrect column count" on a single <td colspan> row —
+             it builds that cell itself from this HTML. --}}
+        @php
+            $noFarmsAtAll = ($totalFarms ?? 0) === 0;
+            $statusFilter = request()->input('status');
+        
+            $empty = $noFarmsAtAll
+                ? [
+                    'icon'  => 'fa-fish',
+                    'tone'  => 'secondary',
+                    'title' => 'No farms yet',
+                    'body'  => 'Farms appear here as farmers create them in '
+                             . 'the app, and you can add one yourself on '
+                             . 'their behalf.',
+                ]
+                : match ($statusFilter) {
+                    'deleted' => [
+                        'icon'  => 'fa-check-circle',
+                        'tone'  => 'success',
+                        'title' => 'Nothing deleted',
+                        'body'  => 'No farm has been removed. Deleted farms '
+                                 . 'are kept here so they can be restored '
+                                 . 'with their records intact.',
+                    ],
+                    'inactive' => [
+                        'icon'  => 'fa-check-circle',
+                        'tone'  => 'success',
+                        'title' => 'Every farm is active',
+                        'body'  => 'No farm has been switched off.',
+                    ],
+                    'active' => [
+                        'icon'  => 'fa-pause-circle',
+                        'tone'  => 'warning',
+                        'title' => 'No active farms',
+                        'body'  => 'Every farm is switched off or deleted, so '
+                                 . 'none is visible in the app right now.',
+                    ],
+                    default => [
+                        'icon'  => 'fa-filter',
+                        'tone'  => 'secondary',
+                        'title' => 'No farms match this filter',
+                        'body'  => 'That farmer has no farms in this state. '
+                                 . 'Try clearing the filters above.',
+                    ],
+                };
+        @endphp
+
+        <div id="table-empty-state" class="d-none">
+            <div class="text-center">
+                <div class="mx-auto mb-3 d-flex align-items-center
+                            justify-content-center rounded-circle bg-light"
+                     style="width:84px; height:84px;">
+                    <i class="fas {{ $empty['icon'] }} fa-2x
+                              text-{{ $empty['tone'] }}"></i>
+                </div>
+            
+                <h5 class="mb-2">{{ $empty['title'] }}</h5>
+            
+                <p class="text-muted mb-0 mx-auto" style="max-width:460px;">
+                    {{ $empty['body'] }}
+                </p>
+            
+                @if ($noFarmsAtAll)
+                    @permission('farm-management.create')
+                        <a href="{{ route('farm-management.farms.create') }}"
+                           class="btn btn-sm btn-primary mt-3">
+                            <i class="fas fa-plus mr-1"></i> Add Farm
+                        </a>
+                    @endpermission
+                @else
+                    <a href="{{ route('farm-management.farms.index') }}"
+                       class="btn btn-sm btn-outline-primary mt-3">
+                        Show all farms
+                    </a>
+                @endif
+        </div>
 @endsection
 
 @push('scripts')

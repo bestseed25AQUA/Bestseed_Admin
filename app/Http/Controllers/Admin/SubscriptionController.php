@@ -99,6 +99,13 @@ class SubscriptionController extends Controller
             'search'         => $search,
             'perPage'        => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
+            // Every subscription ever recorded, ignoring the filter and the
+            // search. An empty table can then say whether NOTHING has been
+            // sold yet or merely nothing matches what is being asked for —
+            // two situations needing opposite advice. Included in $list, not
+            // only on the full page, so the live-filter partial can say it
+            // too rather than falling back to blank wording mid-typing.
+            'totalAll'       => FarmSubscription::count(),
         ];
 
         // The table on its own, for the live filter as the admin types.
@@ -295,6 +302,10 @@ class SubscriptionController extends Controller
             'counts' => [
                 'open'    => SubscriptionRequest::open()->count(),
                 'pending' => SubscriptionRequest::pending()->count(),
+                // Every request ever, so an empty list can tell "nobody has
+                // ever asked" apart from "nothing matches THIS filter" — two
+                // situations that call for completely different wording.
+                'total'   => SubscriptionRequest::count(),
             ],
         ]);
     }
