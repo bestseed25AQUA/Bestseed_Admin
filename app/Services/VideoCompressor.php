@@ -36,10 +36,13 @@ class VideoCompressor
     /** Seconds. A long video on a slow machine must not hang the request. */
     private const TIMEOUT = 600;
 
-    /** Is ffmpeg on this machine? */
+    /** Can this server actually compress? */
     public function available(): bool
     {
-        return $this->binary() !== null;
+        // proc_open as well as the binary: a host can have ffmpeg installed
+        // and still forbid PHP from running it, and "available" has to mean
+        // "will work", not "is present".
+        return function_exists('proc_open') && $this->binary() !== null;
     }
 
     /**
@@ -76,38 +79,52 @@ class VideoCompressor
         // mistaken for the finished file.
         $temp = $path . '.compressing.mp4';
 
-        $process = new Process([
-            $ffmpeg,
-            '-y',
-            '-i', $path,
-            // Scale to at most 720p, keeping the aspect ratio, and only ever
-            // DOWN — upscaling a small clip would make it bigger for nothing.
-            // -2 keeps the width even, which H.264 requires.
-            '-vf', 'scale=-2:min(' . self::MAX_HEIGHT . '\,ih)',
-            '-c:v', 'libx264',
-            '-preset', 'medium',
-            '-crf', (string) self::CRF,
-            // Baseline-friendly pixel format: some Android players show a
-            // green screen without it.
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac',
-            '-b:a', '96k',
-            // Puts the index at the front so playback can start before the
-            // whole file has arrived — the difference between a video that
-            // streams and one that must download first.
-            '-movflags', '+faststart',
-            $temp,
-        ]);
-
-        $process->setTimeout(self::TIMEOUT);
-
+        // Everything from here is wrapped, because Symfony throws from the
+        // CONSTRUCTOR — not just from run() — when proc_open is disabled,
+        // which many shared hosts do. Catching only the timeout meant such a
+        // host returned a 500 on upload instead of simply skipping
+        // compression.
         try {
+            $process = new Process([
+                $ffmpeg,
+                '-y',
+                '-i', $path,
+                // Scale to at most 720p, keeping the aspect ratio, and only ever
+                // DOWN — upscaling a small clip would make it bigger for nothing.
+                // -2 keeps the width even, which H.264 requires.
+                '-vf', 'scale=-2:min(' . self::MAX_HEIGHT . '\,ih)',
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', (string) self::CRF,
+                // Baseline-friendly pixel format: some Android players show a
+                // green screen without it.
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac',
+                '-b:a', '96k',
+                // Puts the index at the front so playback can start before the
+                // whole file has arrived — the difference between a video that
+                // streams and one that must download first.
+                '-movflags', '+faststart',
+                $temp,
+            ]);
+
+            $process->setTimeout(self::TIMEOUT);
             $process->run();
         } catch (ProcessTimedOutException $e) {
             @unlink($temp);
             Log::warning('Video compression timed out', ['path' => $path]);
 
             return ['reason' => 'it took too long to compress'] + $result;
+        } catch (\Throwable $e) {
+            @unlink($temp);
+            Log::warning('Video compression could not run', [
+                'path'  => $path,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'reason' => 'this server cannot run the compressor',
+            ] + $result;
         }
 
         if (!$process->isSuccessful() || !is_file($temp)) {
@@ -190,14 +207,45 @@ class VideoCompressor
 
         $resolved = true;
 
-        foreach (['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'] as $candidate) {
+        // An explicit path wins, for shared hosting where ffmpeg cannot be
+        // installed system-wide but a static build can sit in the account's
+        // own home directory. Set FFMPEG_PATH in .env.
+        $configured = trim((string) config('services.ffmpeg.path', ''));
+
+        if ($configured !== '' && is_executable($configured)) {
+            return $path = $configured;
+        }
+
+        $candidates = [
+            '/opt/homebrew/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/usr/bin/ffmpeg',
+            '/bin/ffmpeg',
+        ];
+
+        // The account's own bin/, which is where a static build goes when
+        // there is no root to install one properly.
+        $home = getenv('HOME');
+
+        if ($home) {
+            array_unshift($candidates, $home . '/bin/ffmpeg', $home . '/ffmpeg/ffmpeg');
+        }
+
+        foreach ($candidates as $candidate) {
             if (is_executable($candidate)) {
                 return $path = $candidate;
             }
         }
 
-        $which = trim((string) @shell_exec('command -v ffmpeg 2>/dev/null'));
+        // Last resort, and only if the host allows it at all.
+        if (function_exists('shell_exec')) {
+            $which = trim((string) @shell_exec('command -v ffmpeg 2>/dev/null'));
 
-        return $path = ($which !== '' && is_executable($which)) ? $which : null;
+            if ($which !== '' && is_executable($which)) {
+                return $path = $which;
+            }
+        }
+
+        return $path = null;
     }
 }

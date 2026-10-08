@@ -19,6 +19,14 @@
                      Every finished batch also has its own button in the table
                      below, so an older crop does not have to be selected first. --}}
                 @if (isset($selected) && $selected && $selected->ended_at)
+                    {{-- Download AND share, the pair the app offers. The panel
+                         could only put the file in the admin's own Downloads
+                         folder, so support had no way to send a farmer the very
+                         page they were both looking at. --}}
+                    <button type="button" class="btn btn-sm btn-outline-primary float-right ml-2 js-share-report"
+                        data-url="{{ route('farm-management.tanks.feed.share', [$farm->id, $tank->id]) }}?batch={{ $selected->id }}">
+                        <i class="fas fa-share-alt mr-1"></i> Share
+                    </button>
                     <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&batch={{ $selected->id }}"
                         class="btn btn-sm btn-primary float-right ml-2">
                         <i class="fas fa-file-pdf mr-1"></i>
@@ -107,7 +115,7 @@
                                 <tr>
                                     <th>Batch</th><th>Stocked</th><th>Finished</th>
                                     <th>Days fed</th><th>Feed used</th>
-                                    <th>Harvest</th><th>FCR</th><th>Status</th>
+                                    <th>Harvest</th><th>Count</th><th>FCR</th><th>Status</th>
                                     <th class="text-center">Records</th>
                                     <th class="text-center text-nowrap">Download</th>
                                 </tr>
@@ -123,6 +131,16 @@
                                         <td>
                                             @if (!is_null($batch->harvest_quantity))
                                                 {{ number_format((float) $batch->harvest_quantity, 2) }} kg
+                                            @else
+                                                <span class="text-muted">-</span>
+                                            @endif
+                                        </td>
+                                        {{-- Pieces per kilo: what the crop is
+                                             priced on, so it belongs next to
+                                             the weight rather than hidden. --}}
+                                        <td>
+                                            @if (!is_null($batch->harvest_count))
+                                                {{ number_format($batch->harvest_count) }}
                                             @else
                                                 <span class="text-muted">-</span>
                                             @endif
@@ -161,6 +179,11 @@
                                                    title="Feed report for batch #{{ $batch->batch_no }} (PDF)">
                                                     <i class="fas fa-file-pdf"></i>
                                                 </a>
+                                                <button type="button" class="btn btn-sm btn-outline-primary btn-action js-share-report"
+                                                   data-url="{{ route('farm-management.tanks.feed.share', [$farm->id, $tank->id]) }}?batch={{ $batch->id }}"
+                                                   title="Share the report for batch #{{ $batch->batch_no }}">
+                                                    <i class="fas fa-share-alt"></i>
+                                                </button>
                                             @else
                                                 <span class="text-muted small">Still running</span>
                                             @endif
@@ -506,4 +529,83 @@
         sync();
     })();
 </script>
+@endpush
+
+@push('scripts')
+    <script>
+        // Share a feed report, the way the app's Share button does.
+        //
+        // The download streams the PDF straight to the browser, which leaves
+        // nothing to send anyone. This asks the server to save the same
+        // document and hand back a URL, then offers it to copy or push
+        // straight into WhatsApp.
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-share-report');
+
+            if (!btn) {
+                return;
+            }
+
+            e.preventDefault();
+
+            var original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            fetch(btn.dataset.url, { headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+                .then(function (res) {
+                    if (!res.ok || !res.body.status) {
+                        throw new Error(res.body.message || 'Could not prepare the report.');
+                    }
+
+                    var url = res.body.url;
+                    var text = (res.body.text || '') + url;
+
+                    Swal.fire({
+                        title: 'Share this report',
+                        html:
+                            '<p class="mb-2 small text-muted">Anyone with this link can open the PDF.</p>' +
+                            '<input id="shareLink" class="form-control form-control-sm" readonly value="' +
+                            url.replace(/"/g, '&quot;') + '">',
+                        showCancelButton: true,
+                        showDenyButton: true,
+                        confirmButtonText: '<i class="fas fa-copy"></i> Copy link',
+                        denyButtonText: '<i class="fab fa-whatsapp"></i> WhatsApp',
+                        denyButtonColor: '#25D366',
+                        cancelButtonText: 'Close',
+                    }).then(function (result) {
+                        if (result.isConfirmed) {
+                            var input = document.getElementById('shareLink');
+
+                            // navigator.clipboard needs HTTPS or localhost, and
+                            // the panel is often reached over plain http on a
+                            // LAN address — so fall back to selecting the text.
+                            if (navigator.clipboard && window.isSecureContext) {
+                                navigator.clipboard.writeText(url);
+                                Swal.fire({
+                                    toast: true, position: 'top-right', icon: 'success',
+                                    title: 'Link copied', showConfirmButton: false, timer: 2000
+                                });
+                            } else if (input) {
+                                input.select();
+                                document.execCommand('copy');
+                            }
+                        } else if (result.isDenied) {
+                            window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+                        }
+                    });
+                })
+                .catch(function (err) {
+                    Swal.fire({
+                        toast: true, position: 'top-right', icon: 'error',
+                        title: err.message, showConfirmButton: false, timer: 4000
+                    });
+                })
+                .finally(function () {
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                });
+        });
+    </script>
 @endpush

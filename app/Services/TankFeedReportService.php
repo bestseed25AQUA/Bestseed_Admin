@@ -139,6 +139,12 @@ class TankFeedReportService
             'harvestQuantity' => $batch?->harvest_quantity !== null
                 ? (float) $batch->harvest_quantity
                 : null,
+            // Pieces per kilo. Null stays null — "not recorded yet" is a real
+            // state here, since the count usually comes back from the buyer
+            // after the tank has already been emptied.
+            'harvestCount'    => $batch?->harvest_count !== null
+                ? (int) $batch->harvest_count
+                : null,
             'fcr'             => $batch?->fcr(),
 
             'generatedAt'   => now(),

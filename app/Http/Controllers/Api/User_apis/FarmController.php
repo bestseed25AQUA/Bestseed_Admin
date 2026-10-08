@@ -1734,6 +1734,10 @@ public function addTodaysQuantity(Request $request){
             // Optional — a farmer may harvest without weighing — and stored on
             // the batch so FCR is that crop's feed divided by this.
             'harvest_quantity' => 'nullable|numeric|min:0',
+            // Pieces per kilo, the trade measure that sets the price.
+            // Optional for the same reason as the weight: the count often
+            // comes back from the buyer after the tank has been emptied.
+            'harvest_count'    => 'nullable|integer|min:1|max:10000',
         ]);
 
         if ($validator->fails()) {
@@ -1808,6 +1812,13 @@ public function addTodaysQuantity(Request $request){
                 // figure recorded on an earlier attempt.
                 if ($request->filled('harvest_quantity')) {
                     $open->harvest_quantity = (float) $request->input('harvest_quantity');
+                }
+
+                // Same rule as the weight above: only written when given, so
+                // closing a crop without the count cannot erase one recorded
+                // earlier.
+                if ($request->filled('harvest_count')) {
+                    $open->harvest_count = (int) $request->input('harvest_count');
                 }
 
                 $open->save();
@@ -1990,6 +2001,7 @@ public function addTodaysQuantity(Request $request){
                 // What the crop weighed, and the ratio it implies. Both null
                 // until a harvest figure is recorded — see TankBatch::fcr().
                 $Tank->harvest_quantity = $batch?->harvest_quantity;
+                $Tank->harvest_count    = $batch?->harvest_count;
                 $Tank->fcr = $batch?->fcr();
 
                 // TODAY's note, for the Add-feed screen: it records one day
@@ -2028,14 +2040,12 @@ public function addTodaysQuantity(Request $request){
 
                 // Day 1 is the stocking day. A tank stocked in the future is
                 // Day 0 — not yet started — rather than a negative count.
-                $Tank->day = 0;
-
-                if ($stockingDate) {
-                    $start = Carbon::parse($stockingDate)->startOfDay();
-                    $Tank->day = $start->greaterThan(now()->startOfDay())
-                        ? 0
-                        : $start->diffInDays(now()->startOfDay()) + 1;
-                }
+                //
+                // Through the model, so the admin panel showing the same
+                // figure cannot work it out differently. It already had: the
+                // panel printed "4.9397261758681 days" from its own version
+                // of this expression.
+                $Tank->day = $Tank->cropDay($stockingDate);
 
                 // The date the app should reckon this tank's age from, already
                 // resolved — the tank's own, or the farm's for tanks created
@@ -2872,6 +2882,7 @@ public function addTodaysQuantity(Request $request){
             'batch_id'  => $batch?->id,
             'batch_no'  => $batch?->batch_no,
             'harvest_quantity' => $batch?->harvest_quantity,
+            'harvest_count'    => $batch?->harvest_count,
             'fcr'              => $batch?->fcr(),
             'is_active' => $batch ? $batch->isOpen() : false,
             'ended_at'  => optional($batch?->ended_at)->toIso8601String(),

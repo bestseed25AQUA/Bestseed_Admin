@@ -43,4 +43,17 @@ return [
         'app_hash' => env('SMS_APP_HASH', 'FA+9qCX9VSu'),
     ],
 
+
+    /*
+     * ffmpeg, used to re-encode uploaded demo videos.
+     *
+     * Optional. Without it the original file is kept as uploaded. Set
+     * FFMPEG_PATH when the binary is not on the system PATH — on shared
+     * hosting that usually means a static build in the account's home
+     * directory, e.g. /home/<user>/bin/ffmpeg
+     */
+    'ffmpeg' => [
+        'path' => env('FFMPEG_PATH', ''),
+    ],
+
 ];

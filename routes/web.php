@@ -245,6 +245,8 @@ Route::group(['middleware' => ['auth', \App\Http\Middleware\IsAdmin::class]], fu
     Route::put('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'update'])->name('farm-management.tanks.update');
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}', [FarmTankController::class, 'destroy'])->name('farm-management.tanks.destroy');
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/toggle-status', [FarmTankController::class, 'toggleStatus'])->name('farm-management.tanks.toggle-status');
+    // The feed report as a shareable link, matching the app's Share action.
+    Route::get('admin/farm-management/farms/{farm}/tanks/{tank}/feed/share', [FarmTankController::class, 'feedReportLink'])->name('farm-management.tanks.feed.share');
     // Tanks are soft-deleted, so they can come back — or be removed for good.
     Route::post('admin/farm-management/farms/{farm}/tanks/{tank}/restore', [FarmTankController::class, 'restore'])->name('farm-management.tanks.restore');
     Route::delete('admin/farm-management/farms/{farm}/tanks/{tank}/force', [FarmTankController::class, 'forceDestroy'])->name('farm-management.tanks.force-destroy');

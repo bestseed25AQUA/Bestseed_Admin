@@ -103,13 +103,28 @@
         {{-- Only printed once the harvest has been weighed. Without a weight
              there is no ratio to state, and a blank row says that better than
              a "0.00" that would read as an excellent result. --}}
-        @if (!is_null($fcr ?? null) || !is_null($harvestQuantity ?? null))
+        {{-- The crop's result: what came out, how big it graded, and what it
+             cost in feed. Printed as soon as ANY of the three is known, since
+             the count often arrives from the buyer days after the weight. --}}
+        @if (!is_null($fcr ?? null) || !is_null($harvestQuantity ?? null) || !is_null($harvestCount ?? null))
             <tr>
-                <td colspan="2">
+                <td>
                     <span class="label">Total harvest</span>
                     <span class="value">
                         @if (!is_null($harvestQuantity ?? null))
                             {{ number_format($harvestQuantity, 2) }} kg
+                        @else
+                            &mdash;
+                        @endif
+                    </span>
+                </td>
+                {{-- Pieces per kilo — the measure the crop is priced on, so
+                     it belongs beside the weight rather than buried. --}}
+                <td>
+                    <span class="label">Count (pieces per kg)</span>
+                    <span class="value">
+                        @if (!is_null($harvestCount ?? null))
+                            {{ number_format($harvestCount) }}
                         @else
                             &mdash;
                         @endif

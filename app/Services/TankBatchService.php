@@ -108,8 +108,11 @@ class TankBatchService
      * them history rather than deleting them, which is how a finished crop drops
      * out of the farm's running total while its report stays downloadable.
      */
-    public function close(Tank $tank, ?float $harvestQuantity = null): ?TankBatch
-    {
+    public function close(
+        Tank $tank,
+        ?float $harvestQuantity = null,
+        ?int $harvestCount = null
+    ): ?TankBatch {
         $open = TankBatch::openFor((int) $tank->id);
 
         if (!$open) {
@@ -124,6 +127,12 @@ class TankBatchService
         // attempt.
         if ($harvestQuantity !== null) {
             $open->harvest_quantity = $harvestQuantity;
+        }
+
+        // Pieces per kilo — the measure the crop is priced on. Same rule as
+        // the weight: only written when given.
+        if ($harvestCount !== null) {
+            $open->harvest_count = $harvestCount;
         }
 
         $open->save();
@@ -145,7 +154,8 @@ class TankBatchService
         int $status,
         ?string $stockingDate = null,
         float $usedBefore = 0,
-        ?float $harvestQuantity = null
+        ?float $harvestQuantity = null,
+        ?int $harvestCount = null
     ): void {
         // NOT wrapped in a transaction here.
         //
@@ -158,7 +168,7 @@ class TankBatchService
         if ($status === 1) {
             $this->open($tank, $stockingDate, $usedBefore);
         } else {
-            $this->close($tank, $harvestQuantity);
+            $this->close($tank, $harvestQuantity, $harvestCount);
         }
 
         $tank->status = $status;

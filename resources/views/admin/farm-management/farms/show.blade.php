@@ -433,19 +433,17 @@
                                                             <i class="fas fa-edit"></i>
                                                         </button>
 
-                                                        {{-- Harvesting needs no answers, so it stays a
-                                                             single click. Starting a crop needs two, so
-                                                             it opens the row below instead of firing
-                                                             straight off. --}}
+                                                        {{-- Both directions open a row rather than firing
+                                                             straight off, because the app asks questions on
+                                                             both. Harvesting used to be a single click here
+                                                             while the app asked for the weight and the count
+                                                             — the same action recording different things
+                                                             depending on who did it. --}}
                                                         @if ($tank->status)
-                                                            <form action="{{ route('farm-management.tanks.toggle-status', [$farm->id, $tank->id]) }}"
-                                                                method="POST" class="d-inline">
-                                                                @csrf
-                                                                <button type="submit" class="btn btn-sm btn-warning btn-action"
-                                                                    title="Deactivate">
-                                                                    <i class="fas fa-power-off"></i>
-                                                                </button>
-                                                            </form>
+                                                            <button class="btn btn-sm btn-warning btn-action" title="Harvest / deactivate"
+                                                                data-toggle="collapse" data-target="#harvestTank{{ $tank->id }}">
+                                                                <i class="fas fa-power-off"></i>
+                                                            </button>
                                                         @else
                                                             <button class="btn btn-sm btn-success btn-action" title="Activate"
                                                                 data-toggle="collapse" data-target="#startCrop{{ $tank->id }}">
@@ -497,6 +495,74 @@
                                                         </form>
                                                     </td>
                                                 </tr>
+
+                                                {{-- Harvesting, with the two answers the app's bottom
+                                                     sheet asks for.
+
+                                                     Feed used and days are shown read-only, exactly as
+                                                     the app shows them, so whoever is closing the crop
+                                                     can see what it consumed before stating what came
+                                                     out. Both inputs are optional for the same reasons
+                                                     as in the app: a farmer may harvest without
+                                                     weighing, and the count usually comes back from the
+                                                     buyer days later. --}}
+                                                @if ($tank->status)
+                                                    <tr class="collapse" id="harvestTank{{ $tank->id }}">
+                                                        <td colspan="7" class="bg-light">
+                                                            <form action="{{ route('farm-management.tanks.toggle-status', [$farm->id, $tank->id]) }}"
+                                                                method="POST">
+                                                                @csrf
+                                                                <div class="row align-items-end">
+                                                                    <div class="col-md-2 form-group mb-2">
+                                                                        <label class="small mb-1 text-muted">Total feed used</label>
+                                                                        <input type="text" class="form-control form-control-sm" readonly
+                                                                            value="{{ number_format((float) ($tank->current_batch_feed ?? 0), 2) }} kg">
+                                                                    </div>
+
+                                                                    <div class="col-md-2 form-group mb-2">
+                                                                        <label class="small mb-1 text-muted">Days</label>
+                                                                        {{-- Through the model, so this reads the
+                                                                             same number the app does. Worked out
+                                                                             inline here once and printed
+                                                                             "4.9397261758681 days". --}}
+                                                                        <input type="text" class="form-control form-control-sm" readonly
+                                                                            value="{{ $tank->cropDay() }} days">
+                                                                    </div>
+
+                                                                    {{-- Pieces per kilo — the measure the crop
+                                                                         is priced on. --}}
+                                                                    <div class="col-md-2 form-group mb-2">
+                                                                        <label class="small mb-1">
+                                                                            Count <span class="text-muted">(optional)</span>
+                                                                        </label>
+                                                                        <input type="number" name="harvest_count" min="1" max="10000"
+                                                                            class="form-control form-control-sm"
+                                                                            placeholder="e.g. 50">
+                                                                    </div>
+
+                                                                    <div class="col-md-3 form-group mb-2">
+                                                                        <label class="small mb-1">
+                                                                            Total harvest for FCR <span class="text-muted">(optional)</span>
+                                                                        </label>
+                                                                        <input type="number" step="0.01" min="0" name="harvest_quantity"
+                                                                            class="form-control form-control-sm"
+                                                                            placeholder="e.g. 2500 kg">
+                                                                    </div>
+
+                                                                    <div class="col-md-3 form-group mb-2">
+                                                                        <button type="submit" class="btn btn-sm btn-warning">
+                                                                            <i class="fas fa-power-off mr-1"></i> Harvest &amp; deactivate
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <small class="text-muted d-block mb-2">
+                                                                    Leave a box empty to record nothing for it — a blank
+                                                                    never overwrites a figure entered earlier.
+                                                                </small>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                @endif
 
                                                 {{-- Starting a crop, with the two answers the app asks
                                                      for on the same action.

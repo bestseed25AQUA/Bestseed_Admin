@@ -298,6 +298,29 @@ class FarmTankController extends Controller
             if ($validator->fails()) {
                 return redirect()->back()->withErrors($validator)->withInput();
             }
+        } else {
+            // Finishing a crop asks the same two questions the app asks.
+            //
+            // The app puts up a sheet for the harvest weight and the count
+            // before it closes a tank; this screen just flipped the flag. A
+            // crop finished from the panel therefore had no result recorded
+            // and no FCR, while the identical action in the app did — the
+            // same job producing different records depending on who did it.
+            //
+            // Both optional, exactly as in the app: a farmer may harvest
+            // without weighing, and the count usually comes back from the
+            // buyer afterwards.
+            $validator = Validator::make($request->all(), [
+                'harvest_quantity' => ['nullable', 'numeric', 'min:0'],
+                'harvest_count'    => ['nullable', 'integer', 'min:1', 'max:10000'],
+            ], [
+                'harvest_count.min' => 'A count is pieces per kilo, so it cannot be below 1.',
+                'harvest_count.max' => 'That count looks wrong — it should be pieces per kilo, e.g. 50.',
+            ]);
+
+            if ($validator->fails()) {
+                return redirect()->back()->withErrors($validator)->withInput();
+            }
         }
 
         try {
@@ -306,6 +329,14 @@ class FarmTankController extends Controller
                 $activating ? 1 : 0,
                 $activating ? $request->input('stocking_date') : null,
                 $activating ? (float) $request->input('feed_used_before', 0) : 0,
+                // Null when the box was left blank, so closing a crop without
+                // a figure cannot wipe one entered earlier.
+                $activating || !$request->filled('harvest_quantity')
+                    ? null
+                    : (float) $request->input('harvest_quantity'),
+                $activating || !$request->filled('harvest_count')
+                    ? null
+                    : (int) $request->input('harvest_count'),
             );
 
             return redirect()->back()->with(
@@ -582,6 +613,77 @@ class FarmTankController extends Controller
                 $batch->batch_no,
                 now()->format('Y_m_d')
             ));
+    }
+
+    /**
+     * The same report, as a shareable link rather than a download.
+     *
+     * The app can hand a farmer this document; the panel could only push it
+     * into the admin's own Downloads folder, so support had no way to send a
+     * farmer the exact page they were both looking at. Saves to public/reports
+     * — the same folder and the same PDF the app produces — and returns the
+     * URL for the browser to copy or pass to WhatsApp.
+     */
+    public function feedReportLink(Request $request, $farmId, $tankId)
+    {
+        $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
+        $farm = Farm::withTrashed()->findOrFail($farmId);
+
+        $batch = $request->filled('batch')
+            ? TankBatch::where('tank_id', $tank->id)->find($request->query('batch'))
+            : null;
+
+        // Finished crops only, for the same reason as the download: a running
+        // batch changes by tomorrow, and a link outlives the moment it was
+        // made far longer than a file does.
+        if (!$batch || !$batch->ended_at) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'A report can only be shared for a finished crop.',
+            ], 422);
+        }
+
+        $data = app(TankFeedReportService::class)->build($tank, $batch);
+
+        if ($data === null) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'This tank has no stocking date, so there is nothing to report yet.',
+            ], 422);
+        }
+
+        $fileName = sprintf(
+            '%s_%s_batch%s_feed_%s.pdf',
+            \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
+            \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
+            $batch->batch_no,
+            now()->format('Y_m_d_His')
+        );
+
+        $folder = public_path('reports');
+
+        if (!is_dir($folder) && !@mkdir($folder, 0755, true) && !is_dir($folder)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Could not write the report on the server.',
+            ], 500);
+        }
+
+        Pdf::loadView('reports.tank-feed', $data)->setPaper('a4')
+            ->save($folder . '/' . $fileName);
+
+        return response()->json([
+            'status' => true,
+            'url'    => asset('reports/' . $fileName),
+            // Ready to paste into WhatsApp, so nobody has to compose the
+            // sentence that explains what the link is.
+            'text'   => sprintf(
+                'Feed report for %s — %s (crop #%s): ',
+                $farm->farm_name ?: 'farm',
+                $tank->tank_name ?: 'tank',
+                $batch->batch_no
+            ),
+        ]);
     }
 
     private function tankRules(): array

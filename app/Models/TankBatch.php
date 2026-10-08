@@ -21,12 +21,16 @@ class TankBatch extends Model
         'stocking_date',
         'feed_used_before',
         'harvest_quantity',
+        'harvest_count',
         'started_at',
         'ended_at',
     ];
 
     protected $casts = [
         'stocking_date' => 'date',
+        // Pieces per kilo. Cast so a count read back from the database is an
+        // int rather than a numeric string, and null stays null.
+        'harvest_count' => 'integer',
         'started_at'    => 'datetime',
         'ended_at'      => 'datetime',
     ];
