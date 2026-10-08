@@ -123,6 +123,13 @@ a.stat-card-link:hover .card {
   box-shadow: 0 1px 3px rgba(231, 76, 60, .35);
 }
 
+/* The same pill in a submenu, where the link is not a flex row. */
+.sidebar .nav.sub-menu .nav-item .nav-link .sidebar-count {
+  margin-left: 8px;
+  margin-right: 0;
+  vertical-align: middle;
+}
+
 /* Navbar search container */
 .navbar .navbar-nav .nav-search {
   position: relative;

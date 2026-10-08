@@ -9,6 +9,7 @@ use App\Models\FarmImage;
 use App\Models\Farmer;
 use App\Models\Feed;
 use App\Models\Manager;
+use App\Services\FarmLicenceService;
 use App\Models\Tank;
 use App\Models\TankBatch;
 use App\Services\FarmStoreService;
@@ -68,6 +69,30 @@ class FarmManagementController extends Controller
             ->when(!$request->filled('status'), fn ($q) => $q->whereNull('deleted_at'))
             ->orderByDesc('id')
             ->get();
+
+        // Each farm's cover, so the list says which free trials are running
+        // out without opening every farm.
+        $licence = app(FarmLicenceService::class);
+        $farms->loadMissing('cover');
+
+        foreach ($farms as $farm) {
+            $farm->licence = $licence->statusFor($farm);
+        }
+
+        if ($request->filled('cover')) {
+            $farms = $farms->filter(function ($farm) use ($request) {
+                $l = $farm->licence;
+                $days = $l['days_remaining'];
+
+                return match ($request->input('cover')) {
+                    'expired'  => $l['is_locked'],
+                    'expiring' => !$l['is_locked'] && $days !== null && $days >= 0 && $days <= 15,
+                    'free'     => $l['is_free'] && !$l['is_locked'],
+                    'paid'     => !$l['is_free'] && !$l['is_locked'],
+                    default    => true,
+                };
+            })->values();
+        }
 
         // Team counts in one query rather than one per farm.
         $teamCounts = Manager::selectRaw('farm_id, is_partner, COUNT(*) as total')

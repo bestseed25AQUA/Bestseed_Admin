@@ -4,6 +4,7 @@
                             <tr>
                                 <th>Farmer</th>
                                 <th>Mobile</th>
+                                <th>Farm</th>
                                 <th>Package</th>
                                 <th>Amount</th>
                                 <th>Starts</th>
@@ -13,6 +14,43 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @foreach ($freeTrials ?? [] as $trial)
+                                @php
+                                    $trialName = trim(($trial->farmer->first_name ?? '') . ' ' . ($trial->farmer->last_name ?? ''))
+                                        ?: 'Farmer #' . ($trial->farm->farmer_id ?? '');
+                                @endphp
+                                <tr class="{{ $trial->state === 'expired' ? 'table-danger' : ($trial->state === 'expiring' ? 'table-warning' : '') }}">
+                                    <td>{{ $trialName }}</td>
+                                    <td>{{ $trial->farmer->mobile ?? '—' }}</td>
+                                    <td>{{ $trial->farm->farm_name }}</td>
+                                    <td><span class="badge badge-info">Free trial</span></td>
+                                    <td>—</td>
+                                    <td>{{ $trial->starts_at?->format('d M Y') ?? '—' }}</td>
+                                    <td>{{ $trial->expires_at->format('d M Y') }}</td>
+                                    <td>
+                                        @if ($trial->state === 'expired')
+                                            <span class="badge badge-danger">Expired</span>
+                                        @elseif ($trial->state === 'expiring')
+                                            <span class="badge badge-warning">
+                                                {{ $trial->days_remaining === 0
+                                                    ? 'Ends today'
+                                                    : $trial->days_remaining . ' day' . ($trial->days_remaining === 1 ? '' : 's') . ' left' }}
+                                            </span>
+                                        @else
+                                            <span class="badge badge-success">{{ $trial->days_remaining }} days left</span>
+                                        @endif
+                                    </td>
+                                    <td class="text-right text-nowrap">
+                                        @permission('subscriptions.create')
+                                            <a href="{{ route('subscriptions.create', ['farmer_id' => $trial->farm->farmer_id]) }}"
+                                               class="btn btn-sm btn-outline-primary" title="Sell a package">
+                                                <i class="fas fa-plus"></i>
+                                            </a>
+                                        @endpermission
+                                    </td>
+                                </tr>
+                            @endforeach
+
                             @forelse ($subscriptions as $subscription)
                                 {{-- Red for expired, amber for close to it. The class
                                      comes from the model so the list, the API and the
@@ -24,6 +62,13 @@
                                 <tr class="{{ $subscription->row_class }}">
                                     <td>{{ $farmerName }}</td>
                                     <td>{{ $subscription->farmer->mobile ?? '—' }}</td>
+                                    <td>
+                                        @forelse ($subscription->coveredFarms as $covered)
+                                            <div>{{ $covered->farm_name }}</div>
+                                        @empty
+                                            <span class="text-muted">Not assigned</span>
+                                        @endforelse
+                                    </td>
                                     <td>{{ $subscription->plan_label }}</td>
                                     <td>{{ config('subscriptions.currency_symbol', '₹') }}{{ number_format($subscription->amount, 0) }}</td>
                                     <td>{{ $subscription->starts_at?->format('d M Y') ?? '—' }}</td>
@@ -96,6 +141,7 @@
                                     </td>
                                 </tr>
                             @empty
+                                @if (empty($freeTrials) || count($freeTrials) === 0)
                                 {{-- Empty state.
                                      Three different situations share this one
                                      cell, and they call for opposite responses:
@@ -162,7 +208,7 @@
                                             });
                                 @endphp
                                 <tr>
-                                    <td colspan="8" class="py-5">
+                                    <td colspan="9" class="py-5">
                                         <div class="text-center">
                                             <div class="mx-auto mb-3 d-flex align-items-center
                                                         justify-content-center rounded-circle bg-light"
@@ -200,6 +246,7 @@
                                         </div>
                                     </td>
                                 </tr>
+                                @endif
                             @endforelse
                         </tbody>
                     </table>
@@ -211,13 +258,22 @@
                      service provider, because this is the only paginated view
                      in the admin and a global change would be a surprise
                      waiting for whoever adds the next one. --}}
+                @php
+                    $trialCount = count($freeTrials ?? []);
+                    $rowCount   = $subscriptions->total() + $trialCount;
+                @endphp
                 <div class="d-flex flex-wrap justify-content-between align-items-center">
                     <small class="text-muted">
                         @if ($subscriptions->total() > 0)
                             Showing {{ $subscriptions->firstItem() }}–{{ $subscriptions->lastItem() }}
-                            of {{ $subscriptions->total() }}
-                        @else
+                            of {{ $subscriptions->total() }} recorded
+                        @elseif ($trialCount === 0)
                             Nothing to show
+                        @else
+                            No packages recorded yet
+                        @endif
+                        @if ($trialCount > 0)
+                            &middot; {{ $trialCount }} free {{ Str::plural('trial', $trialCount) }}
                         @endif
                     </small>
                     <div class="ml-auto">
@@ -225,4 +281,4 @@
                     </div>
                 </div>
 
-<span id="subTotal" class="d-none" data-total="{{ $subscriptions->total() }}"></span>
+<span id="subTotal" class="d-none" data-total="{{ $rowCount }}"></span>

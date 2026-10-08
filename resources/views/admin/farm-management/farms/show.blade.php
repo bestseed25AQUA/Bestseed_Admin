@@ -327,17 +327,58 @@
                                                     <option value="0">Inactive</option>
                                                 </select>
                                             </div>
-                                            <div class="col-md-4 form-group">
+                                            <div class="col-md-3 form-group">
                                                 <label>Stocking Date</label>
-                                                <input type="date" name="stocking_date" class="form-control"
-                                                    value="{{ $farm->stocking_date ? \Illuminate\Support\Carbon::parse($farm->stocking_date)->format('Y-m-d') : '' }}">
-                                                <small class="text-muted">Defaults to the farm's stocking date.</small>
+                                                <input type="date" name="stocking_date" id="newTankStocking"
+                                                    class="form-control"
+                                                    max="{{ now()->toDateString() }}"
+                                                    value="{{ now()->toDateString() }}">
+                                            </div>
+                                            <div class="col-md-4 form-group d-none" id="newTankPriorFeedWrap">
+                                                <label>Feed already used (kg)</label>
+                                                <input type="number" name="feed_used_before" step="0.01" min="0"
+                                                       class="form-control" placeholder="0"
+                                                       id="newTankPriorFeed">
+                                                <small class="text-muted" id="newTankPriorFeedHint"></small>
                                             </div>
                                         </div>
                                         <button type="submit" class="btn btn-primary">
                                             <i class="fas fa-plus mr-1"></i> Add Tank
                                         </button>
                                     </form>
+
+                                    <script>
+                                        (function () {
+                                            var date = document.getElementById('newTankStocking');
+                                            var wrap = document.getElementById('newTankPriorFeedWrap');
+                                            var hint = document.getElementById('newTankPriorFeedHint');
+                                            var box  = document.getElementById('newTankPriorFeed');
+
+                                            if (!date || !wrap) return;
+
+                                            function sync() {
+                                                var today = new Date(); today.setHours(0, 0, 0, 0);
+                                                var parts = (date.value || '').split('-');
+                                                var picked = parts.length === 3
+                                                    ? new Date(parts[0], parts[1] - 1, parts[2])
+                                                    : null;
+
+                                                if (!picked || picked >= today) {
+                                                    wrap.classList.add('d-none');
+                                                    if (box) box.value = '';
+                                                    return;
+                                                }
+
+                                                var days = Math.round((today - picked) / 86400000);
+                                                wrap.classList.remove('d-none');
+                                                hint.textContent = 'Stocked ' + days + ' day' + (days === 1 ? '' : 's')
+                                                    + ' ago. Leave blank if nothing was fed yet.';
+                                            }
+
+                                            date.addEventListener('change', sync);
+                                            sync();
+                                        })();
+                                    </script>
                                 </div>
                             </div>
                         @endpermission

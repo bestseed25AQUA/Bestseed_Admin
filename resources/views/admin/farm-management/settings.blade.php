@@ -105,31 +105,12 @@
                         <small class="form-text text-muted">
                             {{ strtoupper(implode(', ', \App\Http\Controllers\Admin\FarmSettingsController::VIDEO_MIMES)) }}
                             &middot; up to <strong>{{ $videoMaxMb }} MB</strong>.
-                            {{-- Said plainly, because the two behave differently
-                                 in the app: a file plays where the farmer is, a
-                                 link throws them out to a browser. --}}
                             A file plays inside the app; a link opens the browser.
                         </small>
 
-                        {{-- Checked in the browser as well as on the server.
-                             PHP discards an oversized request before any of our
-                             code runs, so without this the admin waits through a
-                             full upload only to be told it was never going to
-                             work. --}}
                         <div class="alert alert-danger py-2 px-3 mt-2 d-none small"
                              id="videoTooLarge"></div>
 
-                        @if ($videoServerCap)
-                            <div class="alert alert-warning py-2 px-3 mt-2 small mb-0">
-                                <i class="fas fa-exclamation-triangle mr-1"></i>
-                                This server caps uploads at <strong>{{ $videoMaxMb }} MB</strong>,
-                                below the {{ \App\Http\Controllers\Admin\FarmSettingsController::VIDEO_MAX_MB }} MB
-                                this screen allows. Raise <code>upload_max_filesize</code> and
-                                <code>post_max_size</code> in
-                                <code>{{ php_ini_loaded_file() ?: 'php.ini' }}</code>
-                                and restart the server to lift it.
-                            </div>
-                        @endif
 
                         @if ($isUploaded)
                             <div class="mt-3">
@@ -202,12 +183,8 @@
 @push('scripts')
     <script>
         // Refuse an oversized video before it is uploaded.
-        //
-        // PHP rejects a request over post_max_size without running any of our
-        // code, so a 60 MB file on a 2 MB server produced a raw error page
-        // after a long wait. Catching it here costs the admin nothing and
-        // explains the limit while the file picker is still fresh in mind.
         (function () {
+
             var input = document.getElementById('farm_demo_video_file');
             var alert = document.getElementById('videoTooLarge');
 
@@ -231,9 +208,7 @@
                 var mb = (file.size / (1024 * 1024)).toFixed(1);
 
                 alert.textContent =
-                    'That video is ' + mb + ' MB, over the ' + maxLabel + ' limit. ' +
-                    'Compress it first — exporting at 720p usually brings a phone ' +
-                    'recording well under the limit.';
+                    'This video is ' + mb + ' MB. Please choose one under ' + maxLabel + '.';
                 alert.classList.remove('d-none');
 
                 // Blocks submit with the browser's own message, so the form

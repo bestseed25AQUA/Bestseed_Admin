@@ -48,11 +48,14 @@ class FarmTankController extends Controller
         }
 
         try {
-            $tank = Tank::create(array_merge($validator->validated(), [
+            $validated = $validator->validated();
+            // Not a tank column — it seeds the batch below.
+            unset($validated['feed_used_before']);
+
+            $tank = Tank::create(array_merge($validated, [
                 'farm_id'       => $farm->id,
-                // A new tank starts from the farm's stocking date unless the
-                // admin gave it one of its own.
-                'stocking_date' => $request->input('stocking_date') ?: $farm->stocking_date,
+                // Today unless the admin chose otherwise, matching the app.
+                'stocking_date' => $request->input('stocking_date') ?: now()->toDateString(),
             ]));
 
             // Open its first crop cycle, as the app does. A tank with no batch
@@ -64,7 +67,14 @@ class FarmTankController extends Controller
             // the order things happened: the tank exists, then a crop starts
             // in it.
             if ((int) $tank->status === 1) {
-                app(TankBatchService::class)->open($tank, $tank->stocking_date);
+                // Prior feed spreads across the days already gone, the same
+                // way the app does it, so a tank stocked last month does not
+                // open with an empty history.
+                app(TankBatchService::class)->open(
+                    $tank,
+                    $tank->stocking_date,
+                    (float) $request->input('feed_used_before', 0)
+                );
             }
 
             Log::info('Admin created tank', ['tank_id' => $tank->id, 'farm_id' => $farm->id]);
@@ -579,7 +589,10 @@ class FarmTankController extends Controller
         return [
             'tank_name'     => 'required|string|max:255',
             'status'        => 'required|in:0,1',
-            'stocking_date' => 'nullable|date',
+            'stocking_date' => 'nullable|date|before_or_equal:today',
+            // What the crop was already fed before today, when the tank is
+            // being added with a past stocking date.
+            'feed_used_before' => FeedLimits::feedUsedBeforeRules(),
         ];
     }
 

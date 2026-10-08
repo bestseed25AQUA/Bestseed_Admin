@@ -162,17 +162,25 @@
                                         @endif
                                     </td>
                                     <td class="text-right text-nowrap">
+                                        @if (!$req->is_open)
+                                            <span class="text-muted small">No action needed</span>
+                                        @else
                                         {{-- Selling is done on the subscriptions screen; this
                                              only records what happened to the request, so the
                                              queue reflects reality. --}}
                                         <a class="btn btn-sm btn-primary"
-                                           href="{{ route('subscriptions.create', ['farmer' => $req->farmer_id]) }}">
+                                           href="{{ route('subscriptions.create', array_filter([
+                                               'farmer' => $req->farmer_id,
+                                               'farm'   => $req->farm_id,
+                                               'plan'   => $req->plan?->key,
+                                           ])) }}">
                                             Sell
                                         </a>
-                                        <button class="btn btn-sm btn-outline-secondary"
+                                        <button class="btn btn-sm btn-secondary"
                                                 data-toggle="collapse" data-target="#req{{ $req->id }}">
                                             Update
                                         </button>
+                                        @endif
                                     </td>
                                 </tr>
                                 <tr class="collapse" id="req{{ $req->id }}">

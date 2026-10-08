@@ -6,6 +6,7 @@ use App\Models\AppConfig;
 use App\Models\Farm;
 use App\Models\FarmSubscription;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * What covers each farm, and what happens when nothing does.
@@ -111,16 +112,23 @@ class FarmLicenceService
         if ($this->freeSlotsLeft((int) $farm->farmer_id, (int) $farm->id) > 0) {
             $months = $this->freeMonths();
 
+            $until = $months > 0
+                ? Carbon::today()->addMonths($months)->toDateString()
+                : null;
+
             $farm->forceFill([
                 'covered_by_subscription_id' => null,
                 // NULL when the free plan has no expiry.
-                'free_until' => $months > 0
-                    ? Carbon::today()->addMonths($months)->toDateString()
-                    : null,
+                'free_until' => $until,
+                // The same date, kept for the record. `free_until` is cleared
+                // when a package takes over; this is not.
+                'free_ended_on' => $until,
                 // Written down, so the slot stays spent even after this farm
                 // is later moved onto a paid package. See [freeFarmsUsed].
                 'took_free_slot' => true,
             ])->save();
+
+            $this->openPeriod($farm, null, Carbon::today()->toDateString(), $until, true);
 
             return $farm;
         }
@@ -149,7 +157,8 @@ class FarmLicenceService
             'covered_by_subscription_id' => $subscription->id,
             // The free period is spent the moment a package takes over; leaving
             // a date behind would quietly un-lock the farm when the package
-            // later lapsed.
+            // later lapsed. `free_ended_on` keeps the date for the history,
+            // and nothing here reads it.
             'free_until' => null,
             // Likewise the grandfathering. Once a package has been sold for
             // this farm it is on the paid plan, and the farmer expects a
@@ -159,6 +168,47 @@ class FarmLicenceService
             // spent when this farm was created; paying for the farm afterwards
             // does not earn the farmer a fresh free one.
         ])->save();
+
+        $this->openPeriod(
+            $farm,
+            $subscription->id,
+            $subscription->starts_at?->toDateString(),
+            $subscription->expires_at?->toDateString(),
+            false
+        );
+    }
+
+    /**
+     * Close whatever covered this farm and open the new period.
+     *
+     * Best-effort: a farm's cover must never fail to change because its
+     * history could not be written.
+     */
+    private function openPeriod(
+        Farm $farm,
+        ?int $subscriptionId,
+        ?string $startedOn,
+        ?string $endedOn,
+        bool $isFree
+    ): void {
+        try {
+            DB::table('farm_cover_periods')
+                ->where('farm_id', $farm->id)
+                ->whereNull('ended_on')
+                ->update(['ended_on' => Carbon::today()->toDateString(), 'updated_at' => now()]);
+
+            DB::table('farm_cover_periods')->insert([
+                'farm_id'         => $farm->id,
+                'subscription_id' => $subscriptionId,
+                'is_free'         => $isFree,
+                'started_on'      => $startedOn,
+                'ended_on'        => null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**

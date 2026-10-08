@@ -86,6 +86,63 @@
                         </table>
                     </div>
                 </div>
+
+                @foreach ($subscription->coveredFarms as $farm)
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <i class="fas fa-seedling mr-1"></i>{{ $farm->farm_name }}
+                            </h5>
+                            <p class="text-muted small">Everything that has covered this farm, newest first.</p>
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Cover</th><th>Amount</th><th>From</th><th>To</th><th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse ($history[$farm->id] ?? [] as $row)
+                                        <tr class="{{ $row['id'] === $subscription->id ? 'table-primary' : '' }}">
+                                            <td>
+                                                @if ($row['is_free'])
+                                                    <span class="badge badge-info">Free trial</span>
+                                                @else
+                                                    {{ $row['label'] }}
+                                                @endif
+                                            </td>
+                                            <td>
+                                                {{ $row['is_free']
+                                                    ? '—'
+                                                    : config('subscriptions.currency_symbol', '₹') . number_format($row['amount'], 0) }}
+                                            </td>
+                                            <td>{{ $row['starts']?->format('d M Y') ?? '—' }}</td>
+                                            <td>
+                                                @if ($row['ends'])
+                                                    {{ $row['ends']->format('d M Y') }}
+                                                @elseif ($row['is_free'])
+                                                    <span class="text-muted">Not recorded</span>
+                                                @else
+                                                    —
+                                                @endif
+                                            </td>
+                                            <td class="text-right">
+                                                @if ($row['state'] === 'current')
+                                                    <span class="badge badge-success">Current plan</span>
+                                                @elseif ($row['id'] && $row['id'] !== $subscription->id)
+                                                    <a href="{{ route('subscriptions.show', $row['id']) }}" class="small">View</a>
+                                                @elseif (!$row['is_free'])
+                                                    <span class="text-muted small">Ended</span>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="5" class="text-muted">Nothing recorded for this farm yet.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endforeach
             </div>
 
             <div class="col-lg-5">

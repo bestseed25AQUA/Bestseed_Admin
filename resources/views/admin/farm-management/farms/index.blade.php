@@ -43,8 +43,16 @@
                         <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Inactive only</option>
                         <option value="deleted" {{ request('status') === 'deleted' ? 'selected' : '' }}>Deleted</option>
                     </select>
+                    <label class="mr-2 mb-0">Cover</label>
+                    <select name="cover" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
+                        <option value="">All</option>
+                        <option value="expiring" {{ request('cover') === 'expiring' ? 'selected' : '' }}>Ending within 15 days</option>
+                        <option value="expired" {{ request('cover') === 'expired' ? 'selected' : '' }}>Expired</option>
+                        <option value="free" {{ request('cover') === 'free' ? 'selected' : '' }}>On free trial</option>
+                        <option value="paid" {{ request('cover') === 'paid' ? 'selected' : '' }}>On a package</option>
+                    </select>
 
-                    @if (request('farmer_id') || request('status'))
+                    @if (request('farmer_id') || request('status') || request('cover'))
                         <a href="{{ route('farm-management.farms.index') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
                     @endif
                 </form>
@@ -61,6 +69,7 @@
                                 <th>Team</th>
                                 <th>Has Access</th>
                                 <th>Stocking Date</th>
+                                <th>Cover</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -103,6 +112,36 @@
                                         <small class="text-muted">({{ $farm->live_members_count }} live)</small>
                                     </td>
                                     <td>{{ $farm->stocking_date ? date('d-m-Y', strtotime($farm->stocking_date)) : '-' }}</td>
+                                    @php
+                                        $cover = $farm->licence ?? null;
+                                        $days  = $cover['days_remaining'] ?? null;
+                                    @endphp
+                                    <td>
+                                        @if (!$cover)
+                                            <span class="text-muted">-</span>
+                                        @elseif ($cover['is_locked'])
+                                            <span class="badge badge-danger">Expired</span>
+                                            @if ($cover['cover_ends_on'])
+                                                <div class="small text-muted">ended {{ date('d M Y', strtotime($cover['cover_ends_on'])) }}</div>
+                                            @endif
+                                        @elseif ($cover['never_expires'])
+                                            <span class="badge badge-success">{{ $cover['is_free'] ? 'Free' : 'Paid' }}</span>
+                                            <div class="small text-muted">no end date</div>
+                                        @else
+                                            <span class="badge {{ $days !== null && $days <= 15 ? 'badge-warning' : 'badge-success' }}">
+                                                {{ $cover['is_free'] ? 'Free trial' : 'Paid' }}
+                                            </span>
+                                            <div class="small {{ $days !== null && $days <= 15 ? 'text-danger font-weight-bold' : 'text-muted' }}">
+                                                @if ($days === 0)
+                                                    ends today
+                                                @elseif ($days === 1)
+                                                    ends tomorrow
+                                                @else
+                                                    {{ (int) $days }} days left
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </td>
                                     <td>
                                         <div class="d-flex justify-content-center">
                                             <a href="{{ route('farm-management.farms.show', $farm->id) }}"

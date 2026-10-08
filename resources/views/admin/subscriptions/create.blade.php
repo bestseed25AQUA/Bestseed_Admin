@@ -39,6 +39,7 @@
                             <label>Mobile number or name</label>
                             <input type="text" id="lookupMobile" class="form-control"
                                    placeholder="Start typing a mobile number or name"
+                                   value="{{ $farmer->mobile ?? '' }}"
                                    maxlength="40" autocomplete="off">
                             <div id="lookupSuggestions" class="farmer-suggestions d-none"></div>
                             <small class="form-text text-muted">
@@ -46,7 +47,15 @@
                             </small>
                         </div>
 
-                        <div id="lookupResult" class="mb-4"></div>
+                        <div id="lookupResult" class="mb-4">
+                            @if ($farmer)
+                                <div class="alert alert-success mb-0">
+                                    <strong>{{ trim($farmer->first_name . ' ' . $farmer->last_name) ?: 'Unnamed farmer' }}</strong>
+                                    &middot; {{ $farmer->mobile }}
+                                    &middot; {{ $farms->count() }} {{ Str::plural('farm', $farms->count()) }}
+                                </div>
+                            @endif
+                        </div>
 
                         <hr>
 
@@ -67,7 +76,7 @@
                                             <input type="radio" name="plan_key" value="{{ $plan->key }}"
                                                    class="plan-radio"
                                                    data-months="{{ $plan->months }}"
-                                                   {{ old('plan_key') === $plan->key ? 'checked' : '' }}
+                                                   {{ old('plan_key', $planKey ?? '') === $plan->key ? 'checked' : '' }}
                                                    style="position:absolute; opacity:0;">
                                             <div class="card plan-card h-100">
                                                 <div class="card-body d-flex justify-content-between align-items-center">
@@ -92,7 +101,25 @@
                                 @endforeach
                             </div>
 
-                            <h5 class="mb-3 mt-4">3. Details</h5>
+                            <h5 class="mb-3 mt-4">3. Which farm does it cover?</h5>
+
+                            <div class="form-group">
+                                <select name="farm_id" id="farmSelect" class="form-control">
+                                    <option value="">Not decided yet</option>
+                                    @foreach ($farms as $farm)
+                                        <option value="{{ $farm->id }}"
+                                            {{ (string) old('farm_id', $farmId ?? '') === (string) $farm->id ? 'selected' : '' }}>
+                                            {{ $farm->farm_name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <small class="form-text text-muted">
+                                    The package covers this one farm. Left blank, the farm stays
+                                    locked until you point a package at it.
+                                </small>
+                            </div>
+
+                            <h5 class="mb-3 mt-4">4. Details</h5>
 
                             <div class="form-group">
                                 <label>Start date <span class="text-muted">(optional)</span></label>
@@ -207,6 +234,19 @@
                 farmerId.value = farmer.id;
                 input.value = farmer.mobile;
                 hide();
+
+                var farmSelect = document.getElementById('farmSelect');
+
+                if (farmSelect) {
+                    farmSelect.innerHTML = '<option value="">Not decided yet</option>';
+
+                    (farmer.farm_list || []).forEach(function (f) {
+                        var option = document.createElement('option');
+                        option.value = f.id;
+                        option.textContent = f.name;
+                        farmSelect.appendChild(option);
+                    });
+                }
 
                 var held = farmer.active
                     ? '<div class="alert alert-info mb-0 mt-2">Already subscribed: <strong>'

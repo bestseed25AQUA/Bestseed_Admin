@@ -28,7 +28,7 @@
             <div class="alert alert-warning">
                 <h5 class="mb-2">
                     <i class="fas fa-bell mr-1"></i>
-                    {{ $dueSoon->total() }} {{ Str::plural('subscription', $dueSoon->total()) }}
+                    {{ $dueSoon->count() }} {{ Str::plural('farm', $dueSoon->count()) }}
                     expiring within {{ $noticeDays }} days
                 </h5>
 
@@ -36,32 +36,38 @@
                     <table class="table table-sm mb-0 bg-white">
                         <thead>
                             <tr>
-                                <th>Farmer</th><th>Package</th><th>Farms</th>
+                                <th>Farmer</th><th>Package</th><th>Farm</th>
                                 <th>Expires</th><th>Days left</th><th class="text-right">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($dueSoon as $due)
+                            @foreach ($dueSoon->take($dueSoonCap) as $due)
                                 <tr>
                                     <td>
                                         {{ trim(($due->farmer->first_name ?? '') . ' ' . ($due->farmer->last_name ?? '')) ?: 'Farmer #' . $due->farmer_id }}
                                         <div class="small text-muted">{{ $due->farmer->mobile ?? '' }}</div>
                                     </td>
-                                    <td>{{ $due->plan_label }}</td>
-                                    <td>{{ $due->farm_limit }}</td>
+                                    <td>
+                                        @if ($due->is_free)
+                                            <span class="badge badge-info">Free trial</span>
+                                        @else
+                                            {{ $due->label }}
+                                        @endif
+                                    </td>
+                                    <td>{{ $due->farms }}</td>
                                     <td>{{ $due->expires_at->format('d M Y') }}</td>
                                     <td>
                                         {{-- 0 is today, not "expired": the term
                                              runs to the end of its last day. --}}
-                                        <span class="badge {{ $due->days_remaining <= 3 ? 'bg-danger text-white' : 'bg-warning text-dark' }}">
-                                            {{ $due->days_remaining }}
-                                            {{ Str::plural('day', $due->days_remaining) }}
+                                        <span class="badge {{ $due->days <= 3 ? 'bg-danger text-white' : 'bg-warning text-dark' }}">
+                                            {{ $due->days }}
+                                            {{ Str::plural('day', $due->days) }}
                                         </span>
                                     </td>
                                     <td class="text-right">
-                                        <a href="{{ route('subscriptions.renew.form', $due) }}"
-                                           class="btn btn-sm btn-primary">
-                                            <i class="fas fa-redo mr-1"></i> Renew
+                                        <a href="{{ $due->renew_url }}" class="btn btn-sm btn-primary">
+                                            <i class="fas {{ $due->is_free ? 'fa-plus' : 'fa-redo' }} mr-1"></i>
+                                            {{ $due->is_free ? 'Sell' : 'Renew' }}
                                         </a>
                                     </td>
                                 </tr>
@@ -70,16 +76,10 @@
                     </table>
                 </div>
 
-                @if ($dueSoon->hasPages())
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mt-2">
-                        <small class="text-muted">
-                            Showing {{ $dueSoon->firstItem() }}–{{ $dueSoon->lastItem() }}
-                            of {{ $dueSoon->total() }}, soonest first
-                        </small>
-                        <div class="ml-auto">
-                            {{ $dueSoon->links('pagination::bootstrap-4') }}
-                        </div>
-                    </div>
+                @if ($dueSoon->count() > $dueSoonCap)
+                    <small class="text-muted d-block mt-2">
+                        Showing the first {{ $dueSoonCap }}, soonest first.
+                    </small>
                 @endif
             </div>
         @endif
@@ -130,7 +130,7 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h4 class="card-title mb-0">
-                        Subscriptions <span class="badge bg-primary ml-2" id="subCount">{{ $subscriptions->total() }}</span>
+                        Subscriptions <span class="badge bg-primary text-white ml-2" id="subCount">{{ $subscriptions->total() + count($freeTrials ?? []) }}</span>
                     </h4>
                     @permission('subscriptions.create')
                         <a href="{{ route('subscriptions.create') }}" class="btn btn-primary">
@@ -147,6 +147,7 @@
                         <option value="expiring" {{ $filter === 'expiring' ? 'selected' : '' }}>Expiring soon</option>
                         <option value="expired" {{ $filter === 'expired' ? 'selected' : '' }}>Expired</option>
                         <option value="cancelled" {{ $filter === 'cancelled' ? 'selected' : '' }}>Cancelled</option>
+                        <option value="replaced" {{ $filter === 'replaced' ? 'selected' : '' }}>Replaced by a renewal</option>
                     </select>
                     <input type="text" name="q" value="{{ $search }}" class="form-control form-control-sm mr-2"
                            placeholder="Name or mobile">

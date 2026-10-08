@@ -26,6 +26,7 @@ class Farm extends Model
         // Licensing — see [FarmLicenceService]. `free_until` is cast so a
         // comparison against it is a date comparison rather than a string one.
         'free_until'     => 'date',
+        'free_ended_on'  => 'date',
         'legacy_free'    => 'boolean',
         'took_free_slot' => 'boolean',
     ];

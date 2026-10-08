@@ -9,8 +9,10 @@ use App\Models\FarmSubscription;
 use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionRequest;
 use Carbon\Carbon;
+use App\Services\FarmLicenceService;
 use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
@@ -25,7 +27,8 @@ use Illuminate\Validation\Rule;
 class SubscriptionController extends Controller
 {
     private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
-    private const DUE_SOON_PER_PAGE = 10;
+    /** Cap on the call list, so one bad month cannot render a thousand rows. */
+    private const DUE_SOON_LIMIT = 50;
 
     public function __construct(private readonly SubscriptionService $subscriptions)
     {
@@ -46,7 +49,18 @@ class SubscriptionController extends Controller
         $filter = $request->input('state', 'all');
         $search = trim((string) $request->input('q', ''));
 
-        $query = FarmSubscription::with('farmer');
+        $query = FarmSubscription::with(['farmer', 'coveredFarms']);
+
+        // Superseded terms drop out of the list the way a replaced free trial
+        // does: expired AND covering nothing means a renewal has taken over.
+        // They stay readable in the farm's history and under the Expired
+        // filter, which is where somebody looking for them would go.
+        if (!in_array($filter, ['expired', 'replaced'], true)) {
+            $query->where(function ($q) {
+                $q->has('coveredFarms')
+                  ->orWhereDate('expires_at', '>=', now()->toDateString());
+            });
+        }
 
         // Filters run in SQL rather than on the collection so the list stays
         // usable once there are thousands of rows.
@@ -54,7 +68,10 @@ class SubscriptionController extends Controller
             'active'    => $query->active(),
             // Each plan's own window, so this list matches the amber rows in it.
             'expiring'  => $query->expiringSoon(),
-            'expired'   => $query->expired(),
+            'expired'   => $query->expired()->has('coveredFarms'),
+            // Terms a renewal has taken over. Kept reachable, but not counted
+            // as expired: no farm lost its cover when they ended.
+            'replaced'  => $query->expired()->doesntHave('coveredFarms'),
             'cancelled' => $query->cancelled(),
             default     => null,
         };
@@ -106,6 +123,11 @@ class SubscriptionController extends Controller
             // only on the full page, so the live-filter partial can say it
             // too rather than falling back to blank wording mid-typing.
             'totalAll'       => FarmSubscription::count(),
+            // Free trials carry no subscription row, so they are derived and
+            // shown alongside. Not paginated with the rest: there is one per
+            // farm, and they belong at the top where they can still be acted
+            // on before the farm locks.
+            'freeTrials'     => $this->freeTrialRows($filter, $search),
         ];
 
         // The table on its own, for the live filter as the admin types.
@@ -118,15 +140,75 @@ class SubscriptionController extends Controller
             'noticeDays' => $noticeDays,
             // Its own page name, so paging the notice does not reset the list
             // below it and vice versa.
-            'dueSoon'    => FarmSubscription::with('farmer')
-                ->expiringWithin($noticeDays)
-                ->orderBy('expires_at')
-                ->orderBy('id')
-                ->paginate(self::DUE_SOON_PER_PAGE, ['*'], 'due')
-                ->appends($request->except(['due', 'partial'])),
+            'dueSoon'    => $this->dueSoon($noticeDays),
+            'dueSoonCap' => self::DUE_SOON_LIMIT,
         ]);
     }
 
+    /**
+     * Farms on the free trial, shaped like a subscription row.
+     *
+     * The list is what admin reads to see who needs ringing, and a farmer
+     * still inside their free period needs ringing BEFORE it lapses — not
+     * after, when the farm has already gone read-only. They have no
+     * subscription row, so one is derived from the farm itself.
+     */
+    private function freeTrialRows(string $filter, string $search)
+    {
+        if (in_array($filter, ['cancelled'], true)) {
+            return collect();
+        }
+
+        $today = now()->toDateString();
+
+        $farms = Farm::with('farmer')
+            ->whereNull('covered_by_subscription_id')
+            ->where('took_free_slot', true)
+            ->whereNotNull('free_until')
+            ->when($search !== '', function ($q) use ($search) {
+                $digits = preg_replace('/\D/', '', $search);
+
+                $q->where(function ($inner) use ($search, $digits) {
+                    $inner->where('farm_name', 'like', "%{$search}%")
+                        ->orWhereHas('farmer', function ($f) use ($search, $digits) {
+                            $f->where('first_name', 'like', "%{$search}%")
+                              ->orWhere('last_name', 'like', "%{$search}%");
+
+                            if ($digits !== '') {
+                                $f->orWhere('mobile', 'like', "%{$digits}%");
+                            }
+                        });
+                });
+            })
+            ->when($filter === 'expired', fn ($q) => $q->whereDate('free_until', '<', $today))
+            ->when(
+                in_array($filter, ['active', 'expiring'], true),
+                fn ($q) => $q->whereDate('free_until', '>=', $today)
+            )
+            ->when(
+                $filter === 'expiring',
+                fn ($q) => $q->whereDate('free_until', '<=', now()->addDays(15)->toDateString())
+            )
+            ->orderBy('free_until')
+            ->get();
+
+        return $farms->map(function (Farm $farm) {
+            $ends = Carbon::parse($farm->free_until)->startOfDay();
+            $days = (int) Carbon::today()->diffInDays($ends, false);
+
+            return (object) [
+                'is_free'        => true,
+                'farm'           => $farm,
+                'farmer'         => $farm->farmer,
+                'plan_label'     => 'Free trial',
+                'amount'         => 0,
+                'starts_at'      => $farm->created_at,
+                'expires_at'     => $ends,
+                'days_remaining' => $days,
+                'state'          => $days < 0 ? 'expired' : ($days <= 15 ? 'expiring' : 'active'),
+            ];
+        });
+    }
     /**
      * The headline numbers, and the admin's half of "notify them".
      *
@@ -136,13 +218,78 @@ class SubscriptionController extends Controller
      */
     private function counts(): array
     {
+        // Free trials counted alongside packages. They are farms about to stop
+        // working, which is the question these cards answer — counting only
+        // sales said "1 expiring" with two farms twelve days from locking.
+        $today  = now()->toDateString();
+        $notice = now()->addDays(15)->toDateString();
+
+        $trials = Farm::whereNull('covered_by_subscription_id')
+            ->where('took_free_slot', true)
+            ->whereNotNull('free_until');
+
         return [
-            'active'   => FarmSubscription::active()->count(),
-            'expiring' => FarmSubscription::expiringSoon()->count(),
-            'expired'  => FarmSubscription::expired()->count(),
+            'active'   => FarmSubscription::active()->has('coveredFarms')->count()
+                + (clone $trials)->whereDate('free_until', '>=', $today)->count(),
+            'expiring' => FarmSubscription::expiringSoon()->has('coveredFarms')->count()
+                + (clone $trials)
+                    ->whereDate('free_until', '>=', $today)
+                    ->whereDate('free_until', '<=', $notice)
+                    ->count(),
+            'expired'  => FarmSubscription::expired()->has('coveredFarms')->count()
+                + (clone $trials)->whereDate('free_until', '<', $today)->count(),
         ];
     }
 
+    /**
+     * The renewal call list: every farm whose cover runs out within the
+     * notice window, soonest first.
+     *
+     * Farms, not sales. A free trial about to end is a farm about to stop
+     * working, and the admin needs to ring that farmer exactly as much as one
+     * whose package is lapsing.
+     */
+    private function dueSoon(int $noticeDays)
+    {
+        $limit = now()->addDays($noticeDays)->toDateString();
+        $today = now()->toDateString();
+
+        $packages = FarmSubscription::with(['farmer', 'coveredFarms'])
+            ->expiringWithin($noticeDays)
+            ->get()
+            ->map(fn (FarmSubscription $s) => (object) [
+                'farmer'     => $s->farmer,
+                'label'      => $s->plan_label,
+                'is_free'    => false,
+                'farms'      => $s->coveredFarms->pluck('farm_name')->implode(', ')
+                    ?: 'Not assigned',
+                'expires_at' => $s->expires_at,
+                'days'       => $s->days_remaining,
+                'renew_url'  => route('subscriptions.renew.form', $s),
+            ]);
+
+        $trials = Farm::with('farmer')
+            ->whereNull('covered_by_subscription_id')
+            ->where('took_free_slot', true)
+            ->whereNotNull('free_until')
+            ->whereDate('free_until', '>=', $today)
+            ->whereDate('free_until', '<=', $limit)
+            ->get()
+            ->map(fn (Farm $f) => (object) [
+                'farmer'     => $f->farmer,
+                'label'      => 'Free trial',
+                'is_free'    => true,
+                'farms'      => $f->farm_name,
+                'expires_at' => Carbon::parse($f->free_until),
+                'days'       => (int) Carbon::today()->diffInDays(Carbon::parse($f->free_until), false),
+                'renew_url'  => route('subscriptions.create', [
+                    'farmer' => $f->farmer_id,
+                    'farm'   => $f->id,
+                ]),
+            ]);
+
+        return $packages->concat($trials)->sortBy('days')->values();
+    }
     /** Keeps a hand-typed per_page out of the query string. */
     private function perPage(mixed $value): int
     {
@@ -153,12 +300,21 @@ class SubscriptionController extends Controller
 
     public function create(Request $request)
     {
+        $farmerId = $request->input('farmer_id', $request->input('farmer'));
+        $farmer   = $farmerId ? Farmer::find($farmerId) : null;
+
         return view('admin.subscriptions.create', [
             'plans'    => SubscriptionPlan::active()->ordered()->get(),
             'currency' => config('subscriptions.currency_symbol', '₹'),
-            'farmer'   => $request->filled('farmer_id')
-                ? Farmer::find($request->input('farmer_id'))
-                : null,
+            // `farmer` as well as `farmer_id`: the Sell button on the requests
+            // queue sends the short name, and reading only the long one left
+            // the admin re-typing a mobile number the page already knew.
+            'farmer'   => $farmer,
+            'farms'    => $farmer
+                ? Farm::where('farmer_id', $farmer->id)->orderBy('id')->get()
+                : collect(),
+            'farmId'   => $request->input('farm'),
+            'planKey'  => $request->input('plan'),
         ]);
     }
 
@@ -205,6 +361,13 @@ class SubscriptionController extends Controller
             ->groupBy('farmer_id')
             ->pluck('total', 'farmer_id');
 
+        // The farms themselves, so choosing a farmer fills the farm picker
+        // without a second request.
+        $farmsByFarmer = Farm::whereIn('farmer_id', $ids)
+            ->orderBy('id')
+            ->get(['id', 'farmer_id', 'farm_name'])
+            ->groupBy('farmer_id');
+
         $live = FarmSubscription::whereIn('farmer_id', $ids)
             ->active()
             ->get()
@@ -212,7 +375,7 @@ class SubscriptionController extends Controller
 
         return response()->json([
             'status'  => true,
-            'farmers' => $farmers->map(function (Farmer $farmer) use ($farmCounts, $live) {
+            'farmers' => $farmers->map(function (Farmer $farmer) use ($farmCounts, $live, $farmsByFarmer) {
                 $held = $live->get($farmer->id);
 
                 return [
@@ -220,6 +383,10 @@ class SubscriptionController extends Controller
                     'name'   => trim($farmer->first_name . ' ' . $farmer->last_name) ?: 'Unnamed farmer',
                     'mobile' => $farmer->mobile,
                     'farms'  => (int) ($farmCounts[$farmer->id] ?? 0),
+                    'farm_list' => ($farmsByFarmer[$farmer->id] ?? collect())
+                        ->map(fn ($f) => ['id' => $f->id, 'name' => $f->farm_name])
+                        ->values()
+                        ->all(),
                     'active' => $held && $held->isNotEmpty() ? [
                         'count'          => $held->count(),
                         'plan_label'     => $held->first()->plan_label,
@@ -235,6 +402,10 @@ class SubscriptionController extends Controller
     {
         $validated = $request->validate([
             'farmer_id' => ['required', 'integer', 'exists:farmers,id'],
+            // Which farm the package covers. Optional, because a package can
+            // be recorded ahead of the farmer choosing — but without it the
+            // farm stays locked after paying, so the form preselects one.
+            'farm_id'   => ['nullable', 'integer', 'exists:farms,id'],
             'plan_key'  => ['required', Rule::exists('subscription_plans', 'key')->where('is_active', true)],
             // Both dates are the admin's to choose. Left blank, the service
             // starts it today — or the day after an existing term ends, so
@@ -267,9 +438,38 @@ class SubscriptionController extends Controller
             return back()->withInput()->with('error', 'The subscription could not be saved. Please try again.');
         }
 
+        $covered = null;
+
+        if (!empty($validated['farm_id'])) {
+            $farm = Farm::where('id', $validated['farm_id'])
+                ->where('farmer_id', $validated['farmer_id'])
+                ->first();
+
+            // Only the farmer's own farm, so a mistyped id cannot unlock
+            // somebody else's.
+            if ($farm) {
+                app(FarmLicenceService::class)->attach($farm, $subscription);
+                $covered = $farm->farm_name;
+
+                // The ask has been answered, so the queue should stop showing
+                // it. Left open, the admin rings a farmer who already paid.
+                SubscriptionRequest::where('farmer_id', $validated['farmer_id'])
+                    ->where('farm_id', $farm->id)
+                    ->open()
+                    ->update([
+                        'status'     => SubscriptionRequest::DONE,
+                        'handled_at' => now(),
+                    ]);
+            }
+        }
+
+        $until = $subscription->expires_at->format('d M Y');
+
         return redirect()
             ->route('subscriptions.index')
-            ->with('success', "{$subscription->plan_label} recorded. Active until {$subscription->expires_at->format('d M Y')}.");
+            ->with('success', $covered
+                ? "{$subscription->plan_label} recorded for \"{$covered}\". Covered until {$until}."
+                : "{$subscription->plan_label} recorded. Active until {$until}.");
     }
 
     /**
@@ -392,21 +592,85 @@ class SubscriptionController extends Controller
             return back()->withInput()->with('error', 'The renewal could not be saved. Please try again.');
         }
 
+        // The farms the old term covered move onto the new one.
+        //
+        // Without this a renewal left the farm pointing at the lapsed term —
+        // still locked, while the package just paid for sat covering nothing
+        // and read "Not assigned" in the list.
+        $licence = app(FarmLicenceService::class);
+        $moved   = [];
+
+        foreach ($subscription->coveredFarms as $farm) {
+            $licence->attach($farm, $renewed);
+            $moved[] = $farm->farm_name;
+        }
+
+        $until = $renewed->expires_at->format('d M Y');
+
         return redirect()
             ->route('subscriptions.show', $renewed)
-            ->with('success', "{$renewed->plan_label} recorded — {$renewed->farm_limit} "
-                . ($renewed->farm_limit === 1 ? 'farm' : 'farms')
-                . " until {$renewed->expires_at->format('d M Y')}.");
+            ->with('success', $moved === []
+                ? "{$renewed->plan_label} recorded until {$until}."
+                : "{$renewed->plan_label} recorded. \"" . implode('", "', $moved)
+                    . "\" covered until {$until}.");
     }
 
     public function show(FarmSubscription $subscription)
     {
-        $subscription->load('farmer', 'reminders');
+        $subscription->load('farmer', 'reminders', 'coveredFarms');
 
         return view('admin.subscriptions.show', [
             'subscription' => $subscription,
             'farms'        => Farm::where('farmer_id', $subscription->farmer_id)->count(),
+            // What has covered each of these farms over time, so the page
+            // answers "what was this farm on before?" without hunting through
+            // the list.
+            'history'      => $subscription->coveredFarms
+                ->mapWithKeys(fn (Farm $farm) => [$farm->id => $this->coverHistory($farm)])
+                ->all(),
         ]);
+    }
+
+    /**
+     * Everything that has ever covered one farm, newest first.
+     *
+     * The free period is included: it is the farm's first cover, and leaving
+     * it out makes a farm look as though nothing held it before the first
+     * package was sold.
+     */
+    private function coverHistory(Farm $farm): array
+    {
+        // From the cover record, not from what points at the farm today: a
+        // renewal moves that pointer, and reading it loses every term the farm
+        // has already had.
+        $periods = DB::table('farm_cover_periods')
+            ->where('farm_id', $farm->id)
+            ->orderByDesc('started_on')
+            ->orderByDesc('id')
+            ->get();
+
+        $subs = FarmSubscription::whereIn(
+            'id',
+            $periods->pluck('subscription_id')->filter()->all()
+        )->get()->keyBy('id');
+
+        return $periods->map(function ($period) use ($subs) {
+            $sub = $period->subscription_id ? $subs->get($period->subscription_id) : null;
+
+            return [
+                'id'      => $sub?->id,
+                'label'   => $period->is_free ? 'Free trial' : ($sub?->plan_label ?? 'Package'),
+                'amount'  => (float) ($sub?->amount ?? 0),
+                'starts'  => $period->started_on ? Carbon::parse($period->started_on) : null,
+                // The period's own end, which for a replaced term is the day it
+                // was replaced rather than the day it would have run to.
+                'ends'    => $period->ended_on
+                    ? Carbon::parse($period->ended_on)
+                    : $sub?->expires_at,
+                'state'   => $period->ended_on ? 'ended' : 'current',
+                'is_free' => (bool) $period->is_free,
+            ];
+        })->all();
     }
 
     public function edit(FarmSubscription $subscription)
@@ -481,11 +745,26 @@ class SubscriptionController extends Controller
      */
     public function destroy(FarmSubscription $subscription)
     {
+        // Let go of the farms first. Without this they keep pointing at a row
+        // that no longer exists: the farm reads as locked with no package to
+        // name, and nothing in the panel explains why.
+        $released = $subscription->coveredFarms->pluck('farm_name')->all();
+
+        Farm::where('covered_by_subscription_id', $subscription->id)
+            ->update(['covered_by_subscription_id' => null]);
+
+        DB::table('farm_cover_periods')
+            ->where('subscription_id', $subscription->id)
+            ->delete();
+
         $subscription->reminders()->delete();
         $subscription->delete();
 
         return redirect()
             ->route('subscriptions.index')
-            ->with('success', 'Subscription deleted.');
+            ->with('success', $released === []
+                ? 'Subscription deleted.'
+                : 'Subscription deleted. "' . implode('", "', $released)
+                    . '" no longer has cover.');
     }
 }

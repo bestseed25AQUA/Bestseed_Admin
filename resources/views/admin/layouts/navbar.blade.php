@@ -163,8 +163,8 @@
             // Guarded: the sidebar renders on every admin page, and a missing
             // table before migrations run must not take the whole panel down.
             try {
-                $subsAlertCount = \App\Models\FarmSubscription::expired()->count()
-                    + \App\Models\FarmSubscription::expiringSoon()->count();
+                $subsAlertCount = \App\Models\FarmSubscription::expired()->has('coveredFarms')->count()
+                    + \App\Models\FarmSubscription::expiringSoon()->has('coveredFarms')->count();
             } catch (\Throwable $e) {
                 $subsAlertCount = 0;
             }
@@ -207,7 +207,7 @@
                         <a class="nav-link" href="{{ route('subscriptions.requests') }}">
                             Requests
                             @if ($subsRequestCount > 0)
-                                <span class="badge bg-danger ml-1">{{ $subsRequestCount }}</span>
+                                <span class="sidebar-count">{{ $subsRequestCount }}</span>
                             @endif
                         </a>
                     </li>

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Farm;
 use App\Models\FarmSubscription;
 use App\Models\SubscriptionPlan;
+use App\Models\SubscriptionRequest;
 use App\Services\FarmLicenceService;
 use Carbon\Carbon;
 
@@ -402,6 +403,19 @@ class SubscriptionService
 
             // Creation slots left on live packages, free allowance aside.
             'package_slots_remaining' => $this->unspentPackageSlots($farmerId),
+
+            // Requests already waiting on an answer, so the app can tell the
+            // farmer which farm and package they have already asked about
+            // instead of keeping that only in memory until the app restarts.
+            'open_requests' => SubscriptionRequest::where('farmer_id', $farmerId)
+                ->open()
+                ->get(['farm_id', 'plan_id'])
+                ->map(fn ($r) => [
+                    'farm_id' => $r->farm_id === null ? null : (int) $r->farm_id,
+                    'plan_id' => $r->plan_id === null ? null : (int) $r->plan_id,
+                ])
+                ->values()
+                ->all(),
 
             'plans' => $this->plans(),
         ];
