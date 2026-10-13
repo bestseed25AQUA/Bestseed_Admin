@@ -27,6 +27,15 @@
                         data-url="{{ route('farm-management.tanks.feed.share', [$farm->id, $tank->id]) }}?batch={{ $selected->id }}">
                         <i class="fas fa-share-alt mr-1"></i> Share
                     </button>
+                    {{-- Read it now, rather than filing it or sending it on —
+                         the panel's equivalent of the app's Open button. Opens
+                         in the browser's own PDF viewer in a new tab, so the
+                         admin does not lose the page they were on. --}}
+                    <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&inline=1&batch={{ $selected->id }}"
+                       target="_blank" rel="noopener"
+                       class="btn btn-sm btn-outline-primary float-right ml-2">
+                        <i class="fas fa-eye mr-1"></i> Open
+                    </a>
                     <a href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&batch={{ $selected->id }}"
                         class="btn btn-sm btn-primary float-right ml-2">
                         <i class="fas fa-file-pdf mr-1"></i>
@@ -184,6 +193,15 @@
                                                    title="Share the report for batch #{{ $batch->batch_no }}">
                                                     <i class="fas fa-share-alt"></i>
                                                 </button>
+                                                {{-- Filled, not outline-secondary: a grey outline on
+                                                     the grey action bar was all but invisible beside
+                                                     the filled Download and the outlined Share. --}}
+                                                <a class="btn btn-sm btn-info btn-action"
+                                                   href="{{ route('farm-management.tanks.feed.report', [$farm->id, $tank->id]) }}?format=pdf&inline=1&batch={{ $batch->id }}"
+                                                   target="_blank" rel="noopener"
+                                                   title="Open the report for batch #{{ $batch->batch_no }}">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
                                             @else
                                                 <span class="text-muted small">Still running</span>
                                             @endif

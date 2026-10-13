@@ -16,6 +16,17 @@
         h1 { font-size: 17px; margin: 0 0 2px; }
         .sub { color: #666; font-size: 10px; margin-bottom: 12px; }
 
+        /* Notes are prose in a table of numbers. Smaller, wrapping, and
+           breaking a long unbroken word rather than forcing the column wider
+           than the page. */
+        .days td.note {
+            font-size: 8.5px;
+            line-height: 1.35;
+            color: #333;
+            white-space: normal;
+            word-break: break-word;
+        }
+
         .summary { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
         .summary td {
             border: 1px solid #d8d8d8;
@@ -155,7 +166,12 @@
                      Meals already shows, said twice in different words. The
                      space is better spent on what each meal actually weighed,
                      which the day total alone never told anyone. --}}
-                <th>Each meal (kg)</th>
+                <th style="width:150px">Each meal (kg)</th>
+                {{-- The farmer's own words about the day — water colour, a
+                     dead patch, weather. Without them the report was a column
+                     of numbers with nothing to explain the ones that look
+                     wrong. --}}
+                <th>Note</th>
             </tr>
         </thead>
         <tbody>
@@ -178,6 +194,13 @@
                             @endforeach
                         @endif
                     </td>
+                    <td class="note">
+                        {{-- A day with no note is left blank rather than
+                             dashed: a page of dashes down the right-hand side
+                             draws the eye to the days that have nothing to
+                             say, which is backwards. --}}
+                        {{ $row['note'] ?? '' }}
+                    </td>
                 </tr>
             @endforeach
         </tbody>
@@ -187,6 +210,11 @@
                 <td class="num">{{ $totalMeals }}</td>
                 <td class="num">{{ number_format($totalQuantity, 2) }}</td>
                 <td>{{ $fedDays }} of {{ count($rows) }} days fed</td>
+                <td>
+                    @if (($notedDays ?? 0) > 0)
+                        {{ $notedDays }} {{ $notedDays === 1 ? 'day has' : 'days have' }} a note
+                    @endif
+                </td>
             </tr>
         </tfoot>
     </table>

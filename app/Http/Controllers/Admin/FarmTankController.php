@@ -631,9 +631,25 @@ class FarmTankController extends Controller
         // The batch number goes in the filename. An admin pulling three crops
         // for one tank otherwise ends up with three files whose names differ by
         // nothing at all.
-        return Pdf::loadView('reports.tank-feed', $data)
-            ->setPaper('a4')
-            ->download(sprintf(
+        $fileName = sprintf(
+            '%s_%s_batch%s_feed_%s.pdf',
+            \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
+            \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),
+            $batch->batch_no,
+            now()->format('Y_m_d')
+        );
+
+        $pdf = Pdf::loadView('reports.tank-feed', $data)->setPaper('a4');
+
+        // `?inline=1` shows the report in the browser's own PDF viewer instead
+        // of putting it in Downloads — the panel's answer to the app's Open
+        // button, so reading a report takes one click in both places rather
+        // than a download and a trip to the file manager.
+        if ($request->boolean('inline')) {
+            return $pdf->stream($fileName);
+        }
+
+        return $pdf->download(sprintf(
                 '%s_%s_batch%s_feed_%s.pdf',
                 \Illuminate\Support\Str::slug($farm->farm_name ?: 'farm'),
                 \Illuminate\Support\Str::slug($tank->tank_name ?: 'tank'),

@@ -6,6 +6,7 @@ use App\Models\Farm;
 use App\Models\Farmer;
 use App\Models\Tank;
 use App\Models\TankBatch;
+use App\Models\TankDayNote;
 use App\Models\TankFeedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -91,6 +92,14 @@ class TankFeedReportService
             ->get()
             ->groupBy(fn ($row) => Carbon::parse($row->feed_date)->toDateString());
 
+        // What was written about each day, keyed by Y-m-d.
+        //
+        // One lookup for the whole crop rather than a query per day. These are
+        // the farmer's own observations — water colour, a dead patch, a weather
+        // note — and leaving them out made the report a column of numbers with
+        // nothing to explain them.
+        $notes = TankDayNote::forTank((int) $tank->id, $batch?->id);
+
         $rows          = [];
         $totalMeals    = 0;
         $totalQuantity = 0.0;
@@ -109,6 +118,9 @@ class TankFeedReportService
                 'quantity'  => $quantity,
                 'entries'   => $entries->count(),
                 'breakdown' => $this->mealBreakdown($entries),
+                // Null, not '', so the view can tell "nothing written" from a
+                // note that was saved and later cleared.
+                'note'      => $notes[$date->toDateString()] ?? null,
             ];
 
             $totalMeals    += $meals;
@@ -128,6 +140,9 @@ class TankFeedReportService
             'start'         => $start,
             'end'           => $end,
             'isFinished'    => $isFinished,
+            // So the footer can say how many days carry a note, the same way
+            // it already says how many were fed.
+            'notedDays'     => count(array_filter(array_column($rows, 'note'))),
             'rows'          => $rows,
             'totalMeals'    => $totalMeals,
             'totalQuantity' => $totalQuantity,
