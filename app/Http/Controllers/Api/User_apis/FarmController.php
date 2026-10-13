@@ -733,6 +733,37 @@ class FarmController extends Controller
                 ], 402);
             }
 
+            // No tank in a new farm may be backdated before the cover it is
+            // about to be put on.
+            //
+            // Checked here, before anything is written, because the farm does
+            // not exist yet and so has no cover of its own to read — the floor
+            // comes from the slot this farm is about to take. A farmer with a
+            // free slot left has no floor at all.
+            $newFarmFloor = $licence->earliestStockingDateForNewFarm($farmerId);
+
+            if ($newFarmFloor) {
+                $floorDate = Carbon::parse($newFarmFloor)->startOfDay();
+                $metaRaw   = $request->input('tanks_meta');
+                $metaRows  = is_string($metaRaw) ? json_decode($metaRaw, true) : $metaRaw;
+
+                foreach ((array) $metaRows as $row) {
+                    $date = $row['stocking_date'] ?? null;
+
+                    if ($date && Carbon::parse($date)->startOfDay()->lessThan($floorDate)) {
+                        return response()->json([
+                            'status'  => false,
+                            'message' => 'Your subscription starts on '
+                                . $floorDate->format('d M Y')
+                                . ', so a tank cannot be recorded as stocked before that date.',
+                            'errors'  => ['stocking_date' => [
+                                'Choose ' . $floorDate->format('d M Y') . ' or later.',
+                            ]],
+                        ], 422);
+                    }
+                }
+            }
+
            // dd('create farm with method type call or fill form');
 
            // Check which method (call or form)
@@ -1391,14 +1422,29 @@ class FarmController extends Controller
             
            
             
+                // The stocking date cannot predate the term covering this
+                // farm — a crop cannot be claimed to have started while the
+                // farm was closed to new data. Free farms have no floor, so a
+                // farmer catching the app up on real history is unaffected.
+                // The rule is built by the licence service so this endpoint
+                // and the admin panel enforce exactly the same limit.
+                $licence  = app(\App\Services\FarmLicenceService::class);
+                $farmHere = Farm::find($farm_id);
+
                 // Validation for tank
                 $validator = Validator::make($request->all(), [
                     'tank_name' => 'required|string|max:255',
                     'status' => 'required|integer',
-                    'stocking_date' => 'required|date',
+                    'stocking_date' => $farmHere
+                        ? $licence->stockingDateRules($farmHere, true)
+                        : 'required|date',
                     'meals' => 'required|integer|min:1',
                     'store' => 'required|string|max:255',
-                ]);
+                ], array_filter([
+                    'stocking_date.after_or_equal' => $farmHere
+                        ? $licence->stockingDateMessage($farmHere)
+                        : null,
+                ]));
                     
                 
                 //dd($validator);
@@ -1728,6 +1774,10 @@ public function addTodaysQuantity(Request $request){
             // Only read when ACTIVATING: a fresh crop needs a date to count
             // its days from, and — if it went in before today — the feed it
             // has already had.
+            //
+            // Bounded by the farm's cover: a crop cannot be backdated into a
+            // period the farm was not paid for. Resolved below, once the tank
+            // — and so the farm — is known.
             'stocking_date'    => 'nullable|date',
             'feed_used_before' => 'nullable|numeric|min:0',
             // Only read when DEACTIVATING: what the crop weighed coming out.
@@ -1750,6 +1800,38 @@ public function addTodaysQuantity(Request $request){
 
         $tank = Tank::find($request->tank_id);
         $activating = (int) $request->status === 1;
+
+        // A new crop cannot be backdated before the term covering this farm.
+        //
+        // Checked here rather than in the rules above because the farm is only
+        // known once the tank has been loaded. Same rule object the admin
+        // panel uses, so both sides refuse the same dates.
+        if ($activating && $request->filled('stocking_date')) {
+            $licence = app(\App\Services\FarmLicenceService::class);
+            $farm    = Farm::find($tank?->farm_id);
+
+            if ($farm) {
+                // The farm's full rule, the same object the admin panel uses,
+                // so both refuse exactly the same dates. It also carries
+                // before_or_equal:today — the app used to accept a stocking
+                // date in the future while the panel refused it, which is the
+                // kind of split the one-rule approach exists to prevent.
+                $dateCheck = Validator::make($request->only('stocking_date'), [
+                    'stocking_date' => $licence->stockingDateRules($farm),
+                ], array_filter([
+                    'stocking_date.before_or_equal' => 'The stocking date cannot be in the future.',
+                    'stocking_date.after_or_equal'  => $licence->stockingDateMessage($farm),
+                ]));
+
+                if ($dateCheck->fails()) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $dateCheck->errors()->first('stocking_date'),
+                        'errors'  => $dateCheck->errors(),
+                    ], 422);
+                }
+            }
+        }
 
         // Activating and deactivating are the two ends of a CROP CYCLE, not
         // just a flag.

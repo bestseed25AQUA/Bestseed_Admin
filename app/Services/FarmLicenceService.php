@@ -297,6 +297,99 @@ class FarmLicenceService
         return $farm->free_until ? Carbon::parse($farm->free_until)->startOfDay() : null;
     }
 
+    /**
+     * The earliest day a crop in this farm may be recorded as stocked.
+     *
+     * A free farm has none: a farmer entering their first farms is catching
+     * the app up on ponds stocked weeks ago, and refusing those dates would
+     * mean refusing their real history.
+     *
+     * A PAID farm may not be backdated before the term covering it. The farm
+     * was closed to new data until that term was bought, so a crop cannot be
+     * claimed to have started during a period nobody had paid for — and the
+     * floor is the CURRENT term's start, not the first ever, so a gap between
+     * one lapsing and the next being bought stays closed too:
+     *
+     *   free ends 10 Oct ... nothing ... term starts 15 Oct
+     *   -> the earliest stocking date is 15 Oct, not 10 Oct
+     *
+     * Renewal re-points the farm at the new term (see the renew flow), so
+     * reading the covering subscription gives that automatically.
+     *
+     * Returns null when there is no floor at all.
+     */
+    public function earliestStockingDate(Farm $farm): ?Carbon
+    {
+        if (!$farm->covered_by_subscription_id) {
+            return null;
+        }
+
+        $sub = FarmSubscription::find($farm->covered_by_subscription_id);
+
+        return $sub?->starts_at ? $sub->starts_at->copy()->startOfDay() : null;
+    }
+
+    /**
+     * The floor for a farm that does not exist yet.
+     *
+     * The add-farm form asks for each tank's stocking date BEFORE the farm is
+     * created, so there is no cover to read. This answers the same question
+     * from the other end: which slot the new farm is about to take, and
+     * therefore which date it will be bounded by once it exists.
+     *
+     * Mirrors [coverNewFarm] exactly — free slots are spent first, so a farmer
+     * with one left gets no floor, and only once those run out does the
+     * package they are about to use set the limit.
+     */
+    public function earliestStockingDateForNewFarm(int $farmerId): ?string
+    {
+        // A free slot is used first, and free farms have no floor.
+        if ($this->freeSlotsLeft($farmerId) > 0) {
+            return null;
+        }
+
+        $package = $this->subscriptionsWithRoom($farmerId)->first();
+
+        return $package?->starts_at ? $package->starts_at->toDateString() : null;
+    }
+
+    /** The same as a Y-m-d string, for validation rules and date inputs. */
+    public function earliestStockingDateString(Farm $farm): ?string
+    {
+        return $this->earliestStockingDate($farm)?->toDateString();
+    }
+
+    /**
+     * Laravel validation rules for a stocking date on this farm.
+     *
+     * Built in one place so the app's endpoints and the admin panel's forms
+     * cannot enforce different limits — the same crop entered from either side
+     * has to be accepted or refused identically.
+     */
+    public function stockingDateRules(Farm $farm, bool $required = false): array
+    {
+        $rules = [$required ? 'required' : 'nullable', 'date', 'before_or_equal:today'];
+
+        if ($floor = $this->earliestStockingDateString($farm)) {
+            $rules[] = 'after_or_equal:' . $floor;
+        }
+
+        return $rules;
+    }
+
+    /** The message to show when a date falls before the floor. */
+    public function stockingDateMessage(Farm $farm): ?string
+    {
+        $floor = $this->earliestStockingDate($farm);
+
+        if (!$floor) {
+            return null;
+        }
+
+        return 'This farm is covered from ' . $floor->format('d M Y')
+            . ', so a crop cannot be recorded as stocked before that date.';
+    }
+
     /** Everything a screen needs to describe one farm's standing. */
     public function statusFor(Farm $farm): array
     {
@@ -314,6 +407,10 @@ class FarmLicenceService
             // eternal.
             'never_expires'   => $ends === null
                 && ((bool) $farm->legacy_free || (bool) $farm->took_free_slot),
+            // The floor for a crop's stocking date, so the app can bound its
+            // date picker instead of letting a farmer choose a day the server
+            // will then refuse. Null means no limit.
+            'earliest_stocking_date' => $this->earliestStockingDateString($farm),
         ];
     }
 }

@@ -38,6 +38,15 @@ class SubscriptionController extends Controller
         // make a second call and reimplement the label matching.
         $status['contact'] = $this->helplineContact();
 
+        // The earliest stocking date a NEW farm's tanks may carry.
+        //
+        // The add-farm form asks for tank dates before the farm exists, so it
+        // cannot read the farm's own cover. This is the same answer from the
+        // other end: null when a free slot is next in line, otherwise the
+        // start of the package the farm is about to be put on.
+        $status['earliest_stocking_date'] = app(\App\Services\FarmLicenceService::class)
+            ->earliestStockingDateForNewFarm((int) $request->user()->id);
+
         return response()->json([
             'status' => true,
             'data'   => $status,

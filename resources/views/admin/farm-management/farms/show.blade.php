@@ -1,6 +1,17 @@
 @extends('admin.layouts.main')
 
 @section('content')
+    @php
+        // The earliest day a crop here may be recorded as stocked.
+        //
+        // Null for a free farm — a farmer's first farms are usually catching
+        // the app up on ponds stocked weeks ago. For a PAID farm it is the
+        // start of the term covering it, so a crop cannot be backdated into a
+        // period the farm was closed. Same value the app's date picker uses.
+        $earliestStocking = app(\App\Services\FarmLicenceService::class)
+            ->earliestStockingDateString($farm);
+    @endphp
+
     <div class="content-wrapper">
         <div class="page-header">
             <h3 class="page-title d-flex align-items-center">
@@ -332,7 +343,15 @@
                                                 <input type="date" name="stocking_date" id="newTankStocking"
                                                     class="form-control"
                                                     max="{{ now()->toDateString() }}"
+                                                    @if ($earliestStocking) min="{{ $earliestStocking }}" @endif
                                                     value="{{ now()->toDateString() }}">
+                                                @if ($earliestStocking)
+                                                    <small class="form-text text-muted">
+                                                        Not before
+                                                        {{ \Illuminate\Support\Carbon::parse($earliestStocking)->format('d M Y') }},
+                                                        when this farm's cover starts.
+                                                    </small>
+                                                @endif
                                             </div>
                                             <div class="col-md-4 form-group d-none" id="newTankPriorFeedWrap">
                                                 <label>Feed already used (kg)</label>
@@ -486,6 +505,8 @@
                                                                 <div class="col-md-4 form-group mb-2">
                                                                     <label class="small mb-1">Stocking Date</label>
                                                                     <input type="date" name="stocking_date" class="form-control form-control-sm"
+                                                                        max="{{ now()->toDateString() }}"
+                                                                        @if ($earliestStocking) min="{{ $earliestStocking }}" @endif
                                                                         value="{{ $tank->stocking_date ? \Illuminate\Support\Carbon::parse($tank->stocking_date)->format('Y-m-d') : '' }}">
                                                                 </div>
                                                             </div>
@@ -586,9 +607,18 @@
                                                                         <input type="date" name="stocking_date" required
                                                                             class="form-control form-control-sm crop-date"
                                                                             {{-- A crop cannot have been stocked
-                                                                                 on a day that has not happened. --}}
+                                                                                 on a day that has not happened,
+                                                                                 nor before this farm's cover
+                                                                                 began. --}}
                                                                             max="{{ now()->toDateString() }}"
+                                                                            @if ($earliestStocking) min="{{ $earliestStocking }}" @endif
                                                                             value="{{ now()->toDateString() }}">
+                                                                        @if ($earliestStocking)
+                                                                            <small class="form-text text-muted">
+                                                                                Not before
+                                                                                {{ \Illuminate\Support\Carbon::parse($earliestStocking)->format('d M Y') }}.
+                                                                            </small>
+                                                                        @endif
                                                                     </div>
 
                                                                     {{-- Hidden until the date is actually in the

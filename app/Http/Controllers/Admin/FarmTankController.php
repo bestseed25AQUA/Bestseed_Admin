@@ -41,7 +41,14 @@ class FarmTankController extends Controller
     {
         $farm = Farm::withTrashed()->findOrFail($farmId);
 
-        $validator = Validator::make($request->all(), $this->tankRules());
+        $validator = Validator::make(
+            $request->all(),
+            $this->tankRules($farm),
+            array_filter([
+                'stocking_date.after_or_equal' =>
+                    app(\App\Services\FarmLicenceService::class)->stockingDateMessage($farm),
+            ])
+        );
 
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
@@ -90,8 +97,16 @@ class FarmTankController extends Controller
     public function update(Request $request, $farmId, $tankId)
     {
         $tank = Tank::where('farm_id', $farmId)->findOrFail($tankId);
+        $farm = Farm::withTrashed()->findOrFail($farmId);
 
-        $validator = Validator::make($request->all(), $this->tankRules());
+        $validator = Validator::make(
+            $request->all(),
+            $this->tankRules($farm),
+            array_filter([
+                'stocking_date.after_or_equal' =>
+                    app(\App\Services\FarmLicenceService::class)->stockingDateMessage($farm),
+            ])
+        );
 
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
@@ -285,15 +300,27 @@ class FarmTankController extends Controller
         // whatever it has already been fed. This screen asked neither, so a
         // tank started here was a crop with no history and the wrong age.
         if ($activating) {
+            // The same rule the app applies, from the same place — a crop
+            // cannot be backdated before the term covering this farm, and the
+            // panel must refuse exactly what the app refuses.
+            $licence = app(\App\Services\FarmLicenceService::class);
+            $farm    = \App\Models\Farm::find($tank->farm_id);
+
             $validator = Validator::make($request->all(), [
                 // before_or_equal:today — a crop cannot have been stocked on a
-                // day that has not happened.
-                'stocking_date'    => ['required', 'date', 'before_or_equal:today'],
+                // day that has not happened. after_or_equal comes from the
+                // farm's cover, when it has one.
+                'stocking_date'    => $farm
+                    ? $licence->stockingDateRules($farm, true)
+                    : ['required', 'date', 'before_or_equal:today'],
                 'feed_used_before' => FeedLimits::feedUsedBeforeRules(),
-            ], [
+            ], array_filter([
                 'stocking_date.required' => 'Choose the date this crop was stocked.',
                 'stocking_date.before_or_equal' => 'The stocking date cannot be in the future.',
-            ]);
+                'stocking_date.after_or_equal' => $farm
+                    ? $licence->stockingDateMessage($farm)
+                    : null,
+            ]));
 
             if ($validator->fails()) {
                 return redirect()->back()->withErrors($validator)->withInput();
@@ -686,12 +713,23 @@ class FarmTankController extends Controller
         ]);
     }
 
-    private function tankRules(): array
+    /**
+     * [$farm] bounds the stocking date by whatever covers that farm.
+     *
+     * Passed in rather than looked up here so the one rule the app enforces is
+     * the one the panel enforces — the same crop entered from either side has
+     * to be accepted or refused identically.
+     */
+    private function tankRules(?Farm $farm = null): array
     {
+        $licence = app(\App\Services\FarmLicenceService::class);
+
         return [
             'tank_name'     => 'required|string|max:255',
             'status'        => 'required|in:0,1',
-            'stocking_date' => 'nullable|date|before_or_equal:today',
+            'stocking_date' => $farm
+                ? $licence->stockingDateRules($farm)
+                : 'nullable|date|before_or_equal:today',
             // What the crop was already fed before today, when the tank is
             // being added with a past stocking date.
             'feed_used_before' => FeedLimits::feedUsedBeforeRules(),
