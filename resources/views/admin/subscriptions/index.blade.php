@@ -44,7 +44,12 @@
                             @foreach ($dueSoon->take($dueSoonCap) as $due)
                                 <tr>
                                     <td>
-                                        {{ trim(($due->farmer->first_name ?? '') . ' ' . ($due->farmer->last_name ?? '')) ?: 'Farmer #' . $due->farmer_id }}
+                                        {{-- ?? on the id as well as the name. A nameless farmer
+                                             is ordinary, and this fallback took the whole page
+                                             down with it when the key was absent. One notice
+                                             should never cost an admin the screen. --}}
+                                        {{ trim(($due->farmer->first_name ?? '') . ' ' . ($due->farmer->last_name ?? ''))
+                                            ?: 'Farmer #' . ($due->farmer_id ?? $due->farmer->id ?? '—') }}
                                         <div class="small text-muted">{{ $due->farmer->mobile ?? '' }}</div>
                                     </td>
                                     <td>

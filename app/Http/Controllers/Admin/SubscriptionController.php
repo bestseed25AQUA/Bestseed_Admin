@@ -259,6 +259,12 @@ class SubscriptionController extends Controller
             ->get()
             ->map(fn (FarmSubscription $s) => (object) [
                 'farmer'     => $s->farmer,
+                // Carried separately from the farmer relation, because the
+                // view falls back to "Farmer #id" when there is no name to
+                // show — and a farmer row with blank names is ordinary. The
+                // key was missing, so that fallback crashed the whole page
+                // with "Undefined property: stdClass::$farmer_id".
+                'farmer_id'  => $s->farmer_id,
                 'label'      => $s->plan_label,
                 'is_free'    => false,
                 'farms'      => $s->coveredFarms->pluck('farm_name')->implode(', ')
@@ -277,6 +283,7 @@ class SubscriptionController extends Controller
             ->get()
             ->map(fn (Farm $f) => (object) [
                 'farmer'     => $f->farmer,
+                'farmer_id'  => $f->farmer_id,
                 'label'      => 'Free trial',
                 'is_free'    => true,
                 'farms'      => $f->farm_name,
