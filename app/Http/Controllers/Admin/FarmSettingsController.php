@@ -19,8 +19,23 @@ use Illuminate\Http\Request;
  */
 class FarmSettingsController extends Controller
 {
-    /** Months a free farm may last. 0 is "never expires". */
-    public const DURATIONS = [0, 1, 2, 3, 6, 12];
+    /**
+     * Months a free farm may last. 0 is "never expires".
+     *
+     * Years are offered as months so the stored value stays one unit. The
+     * list stops at five years because beyond that "never expires" is the
+     * honest answer — and that one cannot be undone from this screen, which
+     * is why the long FIXED periods exist at all.
+     */
+    public const DURATIONS = [
+        0,                                  // none — no free period at all
+        1, 2, 3, 6,                         // months
+        12, 24, 36, 48, 60,                 // years
+        FarmLicenceService::NEVER_EXPIRES,  // last: the one that cannot be undone
+    ];
+
+    /** How many free farms the dropdown offers. -1 is unlimited. */
+    public const FREE_COUNTS = [0, 1, 2, 3, 4, 5, 10, 20, FarmLicenceService::UNLIMITED];
 
     public function edit()
     {
@@ -37,6 +52,16 @@ class FarmSettingsController extends Controller
             'videoServerCap' => UploadLimit::cappedByServer(self::VIDEO_MAX_MB),
             'videoTitle' => AppConfig::getValue('farm_demo_video_title', 'How Farm Management works'),
             'durations'  => self::DURATIONS,
+            'freeCounts'   => self::FREE_COUNTS,
+            'unlimited'    => FarmLicenceService::UNLIMITED,
+            'neverExpires' => FarmLicenceService::NEVER_EXPIRES,
+
+            // Free farms that would be affected by an end date, so the form
+            // can say how many before it is pressed rather than after.
+            'openEndedFarms' => Farm::withTrashed()
+                ->whereNull('covered_by_subscription_id')
+                ->whereNull('free_until')
+                ->count(),
 
             // What changing this would mean right now, so the decision is made
             // with the consequence in view rather than discovered afterwards.
@@ -63,8 +88,13 @@ class FarmSettingsController extends Controller
     public function update(Request $request)
     {
         $data = $request->validate([
-            'farm_free_count'  => ['required', 'integer', 'min:0', 'max:50'],
-            'farm_free_months' => ['required', 'integer', 'min:0', 'max:120'],
+            // min:-1 — see FarmLicenceService::UNLIMITED.
+            'farm_free_count'  => ['required', 'integer', 'min:-1', 'max:50'],
+            // min:-1 — see FarmLicenceService::NEVER_EXPIRES.
+            'farm_free_months' => ['required', 'integer', 'min:-1', 'max:120'],
+            // Ending the free period on farms that already have none. Its own
+            // field so saving the plan above cannot do it by accident.
+            'free_ends_on'     => ['nullable', 'date', 'after_or_equal:today'],
             // Only ever a pasted link. An uploaded file never comes back
             // through this field — see the view — so `url` is safe here.
             'farm_demo_video_url'   => ['nullable', 'url', 'max:500'],
@@ -82,8 +112,8 @@ class FarmSettingsController extends Controller
                 'max:' . (UploadLimit::megabytes(self::VIDEO_MAX_MB) * 1024),
             ],
         ], [
-            'farm_free_count.required'  => 'Say how many farms come free. Enter 0 for none.',
-            'farm_free_months.required' => 'Say how long the free period lasts. Enter 0 for no expiry.',
+            'farm_free_count.required'  => 'Say how many farms come free. Choose None for none.',
+            'farm_free_months.required' => 'Say how long the free period lasts. Choose None for no free plan.',
             'farm_demo_video_url.url'   => 'The demo video needs a full link, starting with https://',
             'farm_demo_video_file.mimetypes' => 'That file is not a video. Upload an '
                 . strtoupper(implode(', ', self::VIDEO_MIMES)) . ' file.',
@@ -137,6 +167,21 @@ class FarmSettingsController extends Controller
             AppConfig::setValue($key, (string) ($value ?? ''), 'farm_management');
         }
 
+        // Ending the free period on farms that never had an end date.
+        //
+        // The settings above are stamped on a farm when it is CREATED, so
+        // changing them never reaches farms that already exist — which is
+        // right, since shortening the plan must not lock a farm somebody is
+        // working in today. But that left "Never expires" as a one-way door:
+        // every farm made under it stayed free for ever with no way back.
+        //
+        // This is the way back, and deliberately a separate field with its own
+        // date: starting to charge people is a decision, not a side effect of
+        // pressing Save.
+        if ($request->filled('free_ends_on')) {
+            $ended = $this->endFreePeriodOn($request->input('free_ends_on'));
+        }
+
         // Deliberately NOT applied to farms that already exist.
         //
         // Their free period was set when they were created, and shortening the
@@ -150,7 +195,44 @@ class FarmSettingsController extends Controller
             // Said out loud, because the file the admin gets back is not the
             // one they chose, and a silent 80% size change looks like a bug.
             . (isset($note) && $note ? ' ' . $note : '')
+            . (isset($ended) && $ended > 0
+                ? sprintf(
+                    ' %d free %s now ends on %s.',
+                    $ended,
+                    $ended === 1 ? 'farm' : 'farms',
+                    \Illuminate\Support\Carbon::parse($request->input('free_ends_on'))->format('d M Y')
+                )
+                : '')
         );
+    }
+
+    /**
+     * Give every open-ended free farm an end date.
+     *
+     * Only farms with NO end date and NO package are touched. A farm already
+     * counting down keeps its own date — this is for the ones created under
+     * "Never expires" — and a paid farm is not free to begin with.
+     *
+     * Trashed farms are included: one restored next month should come back
+     * under the same terms as its neighbours, not as the last farm in the
+     * system that is still free for ever.
+     *
+     * Returns how many were changed.
+     */
+    private function endFreePeriodOn(string $date): int
+    {
+        return Farm::withTrashed()
+            ->whereNull('covered_by_subscription_id')
+            ->whereNull('free_until')
+            ->update([
+                'free_until' => \Illuminate\Support\Carbon::parse($date)->toDateString(),
+                // These farms are on the paid plan's terms from now on, so the
+                // grandfathering that made them never lock has to go with it —
+                // otherwise the date would be written and ignored.
+                'legacy_free' => false,
+                // They did take a free slot, which stays spent.
+                'took_free_slot' => true,
+            ]);
     }
 
     /**

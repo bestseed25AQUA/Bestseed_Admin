@@ -35,9 +35,15 @@
                     <div class="col-md-4 form-group">
                         <label for="farm_free_count">Free farms <span class="text-danger">*</span></label>
                         <select class="form-control" id="farm_free_count" name="farm_free_count" required>
-                            @foreach (range(0, 5) as $n)
+                            @foreach ($freeCounts as $n)
                                 <option value="{{ $n }}" {{ (int) old('farm_free_count', $freeCount) === $n ? 'selected' : '' }}>
-                                    {{ $n === 0 ? 'None — a package is needed from the first farm' : $n . ' free ' . Str::plural('farm', $n) }}
+                                    @if ($n === $unlimited)
+                                        Unlimited — every farm is free
+                                    @elseif ($n === 0)
+                                        None — a package is needed from the first farm
+                                    @else
+                                        {{ $n }} free {{ Str::plural('farm', $n) }}
+                                    @endif
                                 </option>
                             @endforeach
                         </select>
@@ -48,12 +54,31 @@
                         <select class="form-control" id="farm_free_months" name="farm_free_months" required>
                             @foreach ($durations as $m)
                                 <option value="{{ $m }}" {{ (int) old('farm_free_months', $freeMonths) === $m ? 'selected' : '' }}>
-                                    {{ $m === 0 ? 'Never expires' : $m . ' ' . Str::plural('month', $m) }}
+                                    @if ($m === 0)
+                                        None — no free period
+                                    @elseif ($m === $neverExpires)
+                                        Never expires
+                                    @elseif ($m % 12 === 0)
+                                        {{-- Read as years once past twelve months: "36 months"
+                                             makes the reader do arithmetic. --}}
+                                        {{ $m / 12 }} {{ Str::plural('year', $m / 12) }}
+                                    @else
+                                        {{ $m }} {{ Str::plural('month', $m) }}
+                                    @endif
                                 </option>
                             @endforeach
                         </select>
                         <small class="form-text text-muted">
-                            After this the farm is locked until a package covers it.
+                            <strong>None</strong> means no free plan at all — every farm needs a
+                            package from the start. Otherwise the farm is locked once the period
+                            ends, until a package covers it.
+                            {{-- Said here, at the point of choosing, because it is the one
+                                 option on this page that cannot be undone by changing the
+                                 page again. --}}
+                            <strong>Never expires</strong> cannot be reversed from this
+                            dropdown — use the box below to end it later.
+                        </small>
+                        <small class="form-text text-muted d-none">
                         </small>
                     </div>
 
@@ -75,6 +100,67 @@
                         </div>
                     </div>
                 </div>
+
+                {{-- The way back from "Never expires".
+                     The settings above are stamped on a farm when it is created,
+                     so changing them never reaches farms that already exist —
+                     right, because shortening the plan must not lock a farm
+                     somebody is working in today. That left no way to ever start
+                     charging farms created under "Never expires". This is it. --}}
+                @if ($openEndedFarms > 0)
+                    {{-- Hidden while the plan still says "Never expires".
+                         At that point the open-ended farms AGREE with the plan —
+                         everything is being given away, so there is nothing to
+                         reconcile and the box only contradicts the dropdown
+                         above it. It appears once the plan moves to a fixed
+                         period, which is exactly the moment the old farms stop
+                         matching it and somebody has to decide what to do with
+                         them. Toggled live by the script below. --}}
+                    <div id="endFreeSection" class="{{ (int) old('farm_free_months', $freeMonths) === $neverExpires ? 'd-none' : '' }}">
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-12">
+                            <h6 class="mb-1">Farms already created with no end date</h6>
+                            {{-- Worded hard against the dropdown above it. The figure is a
+                                 count of EXISTING farm records, and when the plan reads
+                                 "Unlimited" a sentence opening "2 farms are free" looks
+                                 like it is contradicting the setting. --}}
+                            <p class="text-muted small mb-2">
+                                The plan above applies to farms created from now on. These
+                                <strong>{{ $openEndedFarms }}</strong> were created earlier, while
+                                the period was set to <em>Never expires</em>, so
+                                {{ $openEndedFarms === 1 ? 'it has' : 'they have' }} no end date and
+                                will stay free for ever unless you set one here.
+                                <strong>Leave this alone to let them keep what they were given.</strong>
+                            </p>
+                        </div>
+
+                        <div class="col-md-4 form-group mb-2">
+                            <label for="free_ends_on">End their free period on</label>
+                            <input type="date" class="form-control" id="free_ends_on"
+                                   name="free_ends_on"
+                                   {{-- Today at the earliest: a date already past would
+                                        lock every one of them the moment Save is pressed. --}}
+                                   min="{{ now()->addDay()->toDateString() }}"
+                                   value="{{ old('free_ends_on') }}">
+                            @error('free_ends_on')
+                                <span class="invalid-feedback d-block"><strong>{{ $message }}</strong></span>
+                            @enderror
+                        </div>
+
+                        <div class="col-md-8 form-group mb-2 d-flex align-items-end">
+                            <div class="alert alert-warning py-2 px-3 mb-0 small w-100">
+                                <i class="fas fa-exclamation-triangle mr-1"></i>
+                                Leave this empty unless you mean it. Saving with a date set
+                                changes <strong>all {{ $openEndedFarms }}</strong> of those
+                                existing {{ $openEndedFarms === 1 ? 'farms' : 'farms' }} at once,
+                                and each will lock on that day until a package covers it.
+                                Everything already recorded stays safe and readable.
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -215,6 +301,38 @@
                 // cannot be sent on a file that is certain to be refused.
                 input.setCustomValidity('This video is larger than ' + maxLabel + '.');
                 input.value = '';
+            });
+        })();
+    </script>
+@endpush
+
+@push('scripts')
+    <script>
+        // Reveal the "end their free period" box only on the Never-expires plan.
+        //
+        // It is the way back from that one option, so showing it beside the
+        // dropdown explains the trade at the moment of choosing. On a fixed
+        // period it is irrelevant, and the date is cleared on the way out so a
+        // value typed and then abandoned cannot be submitted by accident.
+        (function () {
+            var months  = document.getElementById('farm_free_months');
+            var section = document.getElementById('endFreeSection');
+            var date    = document.getElementById('free_ends_on');
+
+            if (!months || !section) {
+                return; // No open-ended farms, so the section is not rendered.
+            }
+
+            months.addEventListener('change', function () {
+                var neverExpires = months.value === '{{ $neverExpires }}';
+
+                // Hidden while the plan is still "Never expires": the old
+                // open-ended farms match it, so there is nothing to decide.
+                section.classList.toggle('d-none', neverExpires);
+
+                if (neverExpires && date) {
+                    date.value = '';
+                }
             });
         })();
     </script>

@@ -24,9 +24,22 @@ class SubscriptionService
     private array $writableCache = [];
 
     /** How many farms a farmer may own without paying. */
+    /**
+     * How many farms come free, as the admin panel has it.
+     *
+     * This read `config('subscriptions.free_farm_limit')` — a file, fixed at
+     * deploy — while every other part of the system read the Farm Management
+     * settings. The two disagreed the moment anyone changed the setting, and
+     * the app believed THIS one: with the plan set to unlimited the server
+     * created farms happily while the app still said "Subscribe to add more".
+     *
+     * Returns FarmLicenceService::UNLIMITED (-1) when there is no limit, so
+     * callers must not do arithmetic on it without checking. See
+     * [remainingFarms], which does.
+     */
     public function freeLimit(): int
     {
-        return max(0, (int) config('subscriptions.free_farm_limit', 2));
+        return app(FarmLicenceService::class)->freeCount();
     }
 
     /**
@@ -108,7 +121,16 @@ class SubscriptionService
      */
     public function remainingFarms(int $farmerId): int
     {
-        $free = max(0, $this->freeLimit() - $this->ownedFarmCount($farmerId));
+        $licence = app(FarmLicenceService::class);
+
+        // Unlimited free farms: there is always another, so no sum applies.
+        // PHP_INT_MAX rather than a big literal, so anything comparing
+        // "> 0" or taking a minimum still behaves.
+        if ($licence->hasUnlimitedFreeFarms() && $licence->hasFreePeriod()) {
+            return PHP_INT_MAX;
+        }
+
+        $free = $licence->freeSlotsLeft($farmerId);
 
         return $free + $this->unspentPackageSlots($farmerId);
     }
@@ -352,12 +374,23 @@ class SubscriptionService
         // Through the same methods the create endpoint uses. This block used
         // to recompute the answer inline, so changing the rule in one place
         // left the app being told something the server would not have done.
+        $licence   = app(FarmLicenceService::class);
+        $unlimited = $licence->hasUnlimitedFreeFarms() && $licence->hasFreePeriod();
+
         $owned     = $this->ownedFarmCount($farmerId);
         $free      = $this->freeLimit();
         $bought    = $this->purchasedFarmLimit($farmerId);
         $remaining = $this->remainingFarms($farmerId);
-        $allowance = $owned + $remaining;
+        $allowance = $unlimited ? FarmLicenceService::UNLIMITED : $owned + $remaining;
         $canCreate = $this->canCreateFarm($farmerId);
+
+        // -1 rather than PHP_INT_MAX on the wire. remainingFarms() returns the
+        // maximum so comparisons keep working server-side, but handing the app
+        // 9223372036854775807 would surface as "9223372036854775807 farms
+        // remaining" the first time anyone printed it.
+        if ($unlimited) {
+            $remaining = FarmLicenceService::UNLIMITED;
+        }
 
         $activePlans  = $this->activePlansFor($farmerId);
         $subscription = $activePlans->first() ?: $this->latestFor($farmerId);
@@ -370,8 +403,14 @@ class SubscriptionService
             'farm_allowance' => $allowance,
             'farms_remaining' => $remaining,
 
+            // One flag the app can read instead of interpreting -1 in three
+            // different fields.
+            'unlimited_farms' => $unlimited,
+
             // Kept for older app builds, which read these two names.
-            'free_remaining' => max(0, $free - $owned),
+            'free_remaining' => $unlimited
+                ? FarmLicenceService::UNLIMITED
+                : max(0, $free - $owned),
 
             'can_create_farm' => $canCreate,
 

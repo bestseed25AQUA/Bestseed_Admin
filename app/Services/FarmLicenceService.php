@@ -27,16 +27,48 @@ use Illuminate\Support\Facades\DB;
  */
 class FarmLicenceService
 {
-    /** How many farms a farmer gets without paying. */
+    /**
+     * Stored in `farm_free_count` to mean "as many as they like".
+     *
+     * A sentinel rather than a huge number, so the intent survives being read
+     * back: 9999 would look like a limit somebody typed, and would eventually
+     * be hit.
+     */
+    public const UNLIMITED = -1;
+
+    /**
+     * Stored in `farm_free_months` to mean "the free period never ends".
+     *
+     * 0 used to mean this, which left no way to say "no free period at all" —
+     * the two opposite answers shared a value. 0 now means none, and never
+     * expiring has a sentinel of its own.
+     */
+    public const NEVER_EXPIRES = -1;
+
+    /** How many farms a farmer gets without paying. -1 is unlimited. */
     public function freeCount(): int
     {
-        return max(0, (int) AppConfig::getValue('farm_free_count', 2));
+        // Defaults to none. A farm that costs nothing is a commercial
+        // decision, so an install that has not made one should not be giving
+        // farms away by accident.
+        $raw = (int) AppConfig::getValue('farm_free_count', 0);
+
+        return $raw === self::UNLIMITED ? self::UNLIMITED : max(0, $raw);
+    }
+
+    /** Every farmer gets free farms without limit. */
+    public function hasUnlimitedFreeFarms(): bool
+    {
+        return $this->freeCount() === self::UNLIMITED;
     }
 
     /** How long a free farm lasts, in months. 0 = never expires. */
     public function freeMonths(): int
     {
-        return max(0, (int) AppConfig::getValue('farm_free_months', 3));
+        $raw = (int) AppConfig::getValue('farm_free_months', 0);
+
+        // -1 never expires, 0 no free period, anything else a count of months.
+        return $raw === self::NEVER_EXPIRES ? self::NEVER_EXPIRES : max(0, $raw);
     }
 
     /**
@@ -71,8 +103,27 @@ class FarmLicenceService
      * covered would otherwise count against its own slot — and the very first
      * free farm on a one-free-farm plan would be told there was no room for it.
      */
+    /** Is there a free plan at all? */
+    public function hasFreePeriod(): bool
+    {
+        return $this->freeMonths() !== 0;
+    }
+
     public function freeSlotsLeft(int $farmerId, ?int $exceptFarmId = null): int
     {
+        // "Free for: None" means no free plan, whatever the farm count says.
+        // The two settings can otherwise contradict each other — two free
+        // farms for zero days — and a slot granted here would be a farm that
+        // locks the instant it is made.
+        if (!$this->hasFreePeriod()) {
+            return 0;
+        }
+
+        // Unlimited: there is always another slot, so nothing needs counting.
+        if ($this->hasUnlimitedFreeFarms()) {
+            return PHP_INT_MAX;
+        }
+
         return max(0, $this->freeCount() - $this->freeFarmsUsed($farmerId, $exceptFarmId));
     }
 
