@@ -240,10 +240,40 @@
                                placeholder="https://www.youtube.com/watch?v=…">
                         <small class="form-text text-muted">
                             Uploading a file replaces this, and pasting a link here deletes
-                            any uploaded file. Leave both alone to keep the current video.
+                            any uploaded file.
+                            @if ($videoUrl && !$isUploaded)
+                                <strong>Clearing this box removes the video</strong> — farmers
+                                will see nothing.
+                            @else
+                                Leave both alone to keep the current video.
+                            @endif
                         </small>
 
                         @if ($videoUrl && !$isUploaded)
+                            {{-- Previewed here so a bad link is caught on this
+                                 page rather than on a farmer's phone. --}}
+                            @if ($videoYoutubeId)
+                                <div class="mt-3" style="max-width:420px;">
+                                    <div class="embed-responsive embed-responsive-16by9"
+                                         style="border-radius:6px; overflow:hidden;">
+                                        <iframe class="embed-responsive-item"
+                                                src="https://www.youtube.com/embed/{{ $videoYoutubeId }}"
+                                                allowfullscreen loading="lazy"
+                                                title="Demo video preview"></iframe>
+                                    </div>
+                                    <small class="text-muted d-block mt-1">
+                                        Plays inside the farmer's app.
+                                    </small>
+                                </div>
+                            @else
+                                <div class="alert alert-warning py-2 px-3 mt-3 small mb-0">
+                                    <strong>This link may not play.</strong> Farmers can watch
+                                    YouTube links and direct video files (.mp4). Anything else
+                                    — a Dribbble shot or a web page, say — has no video for the
+                                    app to play. Upload a file instead if you are unsure.
+                                </div>
+                            @endif
+
                             <div class="custom-control custom-checkbox mt-2">
                                 <input type="checkbox" class="custom-control-input"
                                        id="farm_demo_video_remove"

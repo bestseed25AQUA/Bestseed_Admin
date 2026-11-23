@@ -37,6 +37,38 @@ class FarmSettingsController extends Controller
     /** How many free farms the dropdown offers. -1 is unlimited. */
     public const FREE_COUNTS = [0, 1, 2, 3, 4, 5, 10, 20, FarmLicenceService::UNLIMITED];
 
+    /**
+     * The YouTube video id inside a link, or null if there isn't one.
+     *
+     * Every form YouTube hands out: youtu.be/ID, watch?v=ID, /embed/ID and
+     * /shorts/ID, with or without the ?si= tracking parameter it now appends
+     * to every share. An id is always 11 characters of [A-Za-z0-9_-].
+     *
+     * Used only to PREVIEW the link on this page. What gets stored is still
+     * the link exactly as it was pasted, so nothing here can mangle it.
+     */
+    public static function youtubeId(?string $url): ?string
+    {
+        if (!$url) {
+            return null;
+        }
+
+        $patterns = [
+            '~youtu\.be/([A-Za-z0-9_-]{11})~',
+            '~youtube\.com/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})~',
+            '~youtube\.com/embed/([A-Za-z0-9_-]{11})~',
+            '~youtube\.com/shorts/([A-Za-z0-9_-]{11})~',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $url, $m)) {
+                return $m[1];
+            }
+        }
+
+        return null;
+    }
+
     public function edit()
     {
         $licence = app(FarmLicenceService::class);
@@ -51,6 +83,11 @@ class FarmSettingsController extends Controller
             'videoMaxBytes'  => UploadLimit::bytes(self::VIDEO_MAX_MB),
             'videoServerCap' => UploadLimit::cappedByServer(self::VIDEO_MAX_MB),
             'videoTitle' => AppConfig::getValue('farm_demo_video_title', 'How Farm Management works'),
+            // So a pasted link is previewed here the way the farmer will see
+            // it, instead of being saved blind and checked on a phone.
+            'videoYoutubeId' => self::youtubeId(
+                AppConfig::getValue('farm_demo_video_url', '')
+            ),
             'durations'  => self::DURATIONS,
             'freeCounts'   => self::FREE_COUNTS,
             'unlimited'    => FarmLicenceService::UNLIMITED,
@@ -125,10 +162,25 @@ class FarmSettingsController extends Controller
         ]);
 
         // Not columns — they only decide what the one video setting becomes.
-        unset($data['farm_demo_video_file'], $data['farm_demo_video_url']);
+        // `farm_demo_video_remove` belongs here too: it is an instruction on
+        // this form, not a setting, and leaving it in wrote a stray
+        // `farm_demo_video_remove = 1` row into app_configs that nothing reads.
+        unset(
+            $data['farm_demo_video_file'],
+            $data['farm_demo_video_url'],
+            $data['farm_demo_video_remove']
+        );
 
         $current = (string) AppConfig::getValue('farm_demo_video_url', '');
         $link    = trim((string) $request->input('farm_demo_video_url', ''));
+
+        // An uploaded file is stored as a relative path; a pasted link always
+        // starts with a scheme. The two behave differently when the link box
+        // comes back empty — see branch 4 — because only one of them was
+        // SHOWING that value in the box the admin just cleared.
+        $currentIsUpload = $current !== ''
+            && !str_starts_with($current, 'http://')
+            && !str_starts_with($current, 'https://');
 
         // One setting, three ways to change it, resolved in a fixed order so
         // two half-filled boxes can never produce a surprise.
@@ -156,12 +208,40 @@ class FarmSettingsController extends Controller
             // 3. A pasted link replaces whatever was there, and takes any
             //    uploaded file with it.
             $this->deleteVideoIfOurs($current);
-            $data['farm_demo_video_url'] = $link;
+
+            // Stored in ONE canonical form when it is a YouTube link.
+            //
+            // The app's player recognises https://www.youtube.com/watch?v=ID,
+            // youtu.be/ID, /embed/ID and /shorts/ID — but not every variant a
+            // browser will hand you, such as a watch URL whose ?list= comes
+            // before the ?v=, or a plain http:// one. Rewriting here means the
+            // admin can paste whatever they copied and the phone still plays
+            // it, instead of the panel previewing a video the app refuses.
+            $youtubeId = self::youtubeId($link);
+            $data['farm_demo_video_url'] = $youtubeId
+                ? "https://www.youtube.com/watch?v={$youtubeId}"
+                : $link;
+        } elseif (!$currentIsUpload && $current !== '') {
+            // 4. The link box was PRE-FILLED with this link and came back
+            //    empty, so it was cleared deliberately. Clearing it removes
+            //    the video — which is what emptying a box plainly means, and
+            //    what everyone tries before finding the tickbox.
+            $this->deleteVideoIfOurs($current);
+            $data['farm_demo_video_url'] = '';
         } else {
-            // 4. Nothing said about the video: leave it exactly as it was.
-            //    Saving the free-plan fields must not wipe the video.
+            // 5. Nothing said about the video: leave it exactly as it was.
+            //
+            //    Reached when there is no video at all, or when the current
+            //    one is an UPLOADED FILE — whose box renders empty by design,
+            //    so an empty box there says nothing about intent. Without this
+            //    branch, saving the free-plan fields would silently delete an
+            //    uploaded video.
             $data['farm_demo_video_url'] = $current;
         }
+
+        // Said out loud below, because "Settings saved" while the video is
+        // still on screen is exactly the confusion this change fixes.
+        $removed = ($data['farm_demo_video_url'] ?? '') === '' && $current !== '';
 
         foreach ($data as $key => $value) {
             AppConfig::setValue($key, (string) ($value ?? ''), 'farm_management');
@@ -195,6 +275,7 @@ class FarmSettingsController extends Controller
             // Said out loud, because the file the admin gets back is not the
             // one they chose, and a silent 80% size change looks like a bug.
             . (isset($note) && $note ? ' ' . $note : '')
+            . ($removed ? ' The demo video was removed — farmers will no longer see it.' : '')
             . (isset($ended) && $ended > 0
                 ? sprintf(
                     ' %d free %s now ends on %s.',
