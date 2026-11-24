@@ -659,8 +659,14 @@ class FarmController extends Controller
             ->orderByDesc('id')
             ->first();
 
-        // Shown only when they have no farms — it is a "how this works" video,
-        // and a farmer already running three farms does not need teaching.
+        // Whether to PUT the video in front of them — reported, not enforced.
+        //
+        // The video used to be withheld here whenever the farmer had a farm,
+        // which meant the app could not offer it even when the farmer asked
+        // for it. It is now always sent when one is configured, and `has_farms`
+        // says whether it should greet them: the card appears only for a
+        // farmer with no farms, while the Add Farm button offers it to
+        // everyone. One request, and the app decides where it belongs.
         $hasFarms = Farm::where('farmer_id', $farmerId)->exists();
         $videoUrl = trim((string) \App\Models\AppConfig::getValue('farm_demo_video_url', ''));
 
@@ -676,7 +682,7 @@ class FarmController extends Controller
                     'image'       => $announcement->image_url,
                 ] : null,
 
-                'demo_video' => (!$hasFarms && $videoUrl !== '') ? [
+                'demo_video' => $videoUrl !== '' ? [
                     // An uploaded file is stored as a path; a pasted link is
                     // already absolute. Resolving here, against THIS request,
                     // means the phone is handed a host it can actually reach —
@@ -1600,6 +1606,32 @@ public function addTodaysQuantity(Request $request){
             }
 
             $currentBatchId = $currentBatch->id;
+
+            // Refuse feed the store cannot cover.
+            //
+            // Checked BEFORE the write, so a refused meal leaves nothing
+            // behind. Previously the store simply went negative and the farmer
+            // was shown "-100 kgs" with no explanation and no hint that the
+            // store needed topping up.
+            //
+            // $previousQuantity is what an EDIT replaces: that feed returns to
+            // the pool first, so changing 100 kg to 120 only needs 20 free.
+            $farmForStore = Farm::find($farm_id);
+
+            if ($farmForStore) {
+                $refusal = app(FarmStoreService::class)->overdrawMessage(
+                    $farmForStore,
+                    (float) $request->feed_quantity,
+                    (float) ($previousQuantity ?? 0)
+                );
+
+                if ($refusal !== null) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $refusal,
+                    ], 422);
+                }
+            }
 
             $feed->meals = $request->meals;
             $feed->feed_quantity = $request->feed_quantity;

@@ -497,6 +497,23 @@ class FarmTankController extends Controller
             );
         }
 
+        // The store has to cover it — the same refusal the farmer's app gives.
+        // Asked here as well as inside the service for the same reason as the
+        // check above: so the panel shows the sentence plainly, rather than
+        // the service's exception wrapped in "Could not add the feed entry:".
+        $farmForStore = \App\Models\Farm::find($farmId);
+
+        if ($farmForStore) {
+            $storeRefusal = app(\App\Services\FarmStoreService::class)->overdrawMessage(
+                $farmForStore,
+                (float) $request->input('feed_quantity')
+            );
+
+            if ($storeRefusal !== null) {
+                return redirect()->back()->withInput()->with('error', $storeRefusal);
+            }
+        }
+
         try {
             $this->feed->record(
                 $tank->id,
@@ -544,6 +561,26 @@ class FarmTankController extends Controller
 
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        // Raising an entry draws on the store exactly as a new one does. The
+        // figure being replaced goes back into the pool first, so a
+        // correction the store can afford is never refused.
+        //
+        // Asked here as well as inside the service so the panel prints the
+        // sentence plainly instead of "Could not update the feed entry: ...".
+        $farmForStore = \App\Models\Farm::find($farmId);
+
+        if ($farmForStore) {
+            $storeRefusal = app(\App\Services\FarmStoreService::class)->overdrawMessage(
+                $farmForStore,
+                (float) $request->input('feed_quantity'),
+                (float) $history->feed_quantity
+            );
+
+            if ($storeRefusal !== null) {
+                return redirect()->back()->withInput()->with('error', $storeRefusal);
+            }
         }
 
         try {

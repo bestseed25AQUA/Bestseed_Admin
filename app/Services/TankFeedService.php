@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Farm;
 use App\Models\Feed;
 use App\Models\Tank;
 // Same namespace, but named explicitly so the dependency is visible at the
@@ -60,6 +61,19 @@ class TankFeedService
 
         $batchId = $batch->id;
 
+        // The store has to cover it — the same rule, and the same wording, the
+        // farmer's app applies. An admin recording feed on someone's behalf
+        // must not be able to push a store negative that the farmer could not.
+        $farm = Farm::find($farmId);
+
+        if ($farm) {
+            $refusal = app(FarmStoreService::class)->overdrawMessage($farm, $quantity);
+
+            if ($refusal !== null) {
+                throw new RuntimeException($refusal);
+            }
+        }
+
         // A real figure for this day supersedes the estimate generated for it.
         //
         // Same rule as the app's own path — see
@@ -107,6 +121,23 @@ class TankFeedService
     {
         $oldMeals    = $history->meals;
         $oldQuantity = $history->feed_quantity;
+
+        // Raising an entry draws on the store like a new one does, so the
+        // same guard applies — less what this entry already took, which goes
+        // back into the pool before the new figure comes out of it.
+        $farm = Farm::find($history->farm_id);
+
+        if ($farm) {
+            $refusal = app(FarmStoreService::class)->overdrawMessage(
+                $farm,
+                $quantity,
+                (float) $oldQuantity
+            );
+
+            if ($refusal !== null) {
+                throw new RuntimeException($refusal);
+            }
+        }
 
         $updated = DB::transaction(function () use ($history, $oldMeals, $oldQuantity, $meals, $quantity) {
             $history->update(['meals' => $meals, 'feed_quantity' => $quantity]);

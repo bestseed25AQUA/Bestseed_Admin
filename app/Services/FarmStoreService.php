@@ -128,4 +128,61 @@ class FarmStoreService
     {
         return round($remaining + $this->recordedFeedFor($farm), 2);
     }
+
+    /**
+     * Why this feed entry cannot be recorded, or NULL if it can.
+     *
+     * The store used to go negative without a word: a farm with 500 kg fed
+     * 100 a day for five days sat at 0, and the sixth day's 100 took it to
+     * −100. A negative shed is not a thing, and reading one tells the farmer
+     * nothing about what to do — so the entry is refused and the reason said
+     * out loud instead.
+     *
+     * One method, because the farmer's app and the admin panel write feed
+     * through different code and must refuse the same entries for the same
+     * reason. Also the only place the wording lives.
+     *
+     * @param float $adding    kilograms being recorded now
+     * @param float $replacing kilograms this entry REPLACES, when editing an
+     *                         existing one. That feed goes back into the pool
+     *                         first, so correcting 100 kg to 120 needs only
+     *                         the extra 20 to be available — not the full 120,
+     *                         which would refuse an edit the store can afford.
+     */
+    public function overdrawMessage(Farm $farm, float $adding, float $replacing = 0.0): ?string
+    {
+        $remaining = $this->remainingFor($farm);
+
+        // No stock figure entered. Unknown is not empty: refusing here would
+        // block every farm that has never filled the store field in.
+        if ($remaining === null) {
+            return null;
+        }
+
+        // A skipped meal is saved as 0 and takes nothing out of the store, so
+        // it is allowed even when the store is empty. Reducing an entry is
+        // likewise always allowed — it hands feed BACK.
+        if ($adding <= 0 || $adding <= $replacing) {
+            return null;
+        }
+
+        $available = round($remaining + $replacing, 2);
+
+        if ($available <= 0) {
+            return 'Your feed store is empty. Please update the store before recording a meal.';
+        }
+
+        if ($adding > $available) {
+            return 'Only ' . $this->kg($available) . ' kg left in the store. '
+                . 'Enter ' . $this->kg($available) . ' kg or less, or update the store first.';
+        }
+
+        return null;
+    }
+
+    /** 50.00 → "50", 49.50 → "49.5". A store does not read in trailing zeros. */
+    private function kg(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+    }
 }
